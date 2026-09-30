@@ -12,14 +12,8 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { api, idPath, type Settings, type Provider, type Key } from "@/lib/api";
+import AIProviderSettings from "@/components/AIProviderSettings.vue";
+import { api, idPath, type Settings, type Key } from "@/lib/api";
 const props = defineProps<{
   t: (zh: string, en: string) => string;
   language: string;
@@ -71,7 +65,6 @@ async function save() {
       registrationEnabled: s.registrationEnabled,
       language: language.value,
       rateLimitMs: Number(s.rateLimitMs),
-      defaultProviderId: s.defaultProviderId,
       prompt: s.prompt,
       ...(mailUrl.value ? { mailWebhookUrl: mailUrl.value } : {}),
       ...(eventUrl.value ? { eventWebhookUrl: eventUrl.value } : {}),
@@ -80,86 +73,6 @@ async function save() {
     eventUrl.value = "";
     await load();
     success.value = props.t("设置已保存", "Settings saved");
-  });
-}
-const editing = ref<Partial<Provider> & { apiKey?: string }>();
-const headers = ref("");
-const models = ref<{ id: string; name: string }[]>([]);
-const testResult = ref("");
-function edit(p?: Provider) {
-  editing.value = p
-    ? { ...p }
-    : {
-        name: "",
-        protocol: "openai-responses",
-        baseUrl: "",
-        model: "",
-        modelsUrl: "",
-        apiKey: "",
-      };
-  headers.value = JSON.stringify(p?.headers || {}, null, 2);
-  models.value = [];
-  testResult.value = "";
-}
-async function saveProvider() {
-  await run(async () => {
-    if (!editing.value) return;
-    const p = editing.value;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(headers.value || "{}");
-    } catch {
-      throw Error(
-        props.t("Headers 必须为 JSON 对象", "Headers must be a JSON object"),
-      );
-    }
-    if (
-      !parsed ||
-      Array.isArray(parsed) ||
-      typeof parsed !== "object" ||
-      Object.values(parsed).some((v) => typeof v !== "string")
-    )
-      throw Error(
-        props.t("Headers 的值必须为字符串", "Header values must be strings"),
-      );
-    const body = {
-      name: p.name,
-      protocol: p.protocol,
-      baseUrl: p.baseUrl,
-      model: p.model,
-      modelsUrl: p.modelsUrl || undefined,
-      headers: parsed,
-      ...(p.apiKey ? { apiKey: p.apiKey } : {}),
-    };
-    await api(
-      p.id ? "/providers/" + idPath(p.id) : "/providers",
-      p.id ? "PUT" : "POST",
-      body,
-    );
-    editing.value = undefined;
-    await load();
-    success.value = props.t("提供商已保存", "Provider saved");
-  });
-}
-async function fetchModels(p: Provider) {
-  await run(async () => {
-    models.value = (
-      await api<{ models: { id: string; name: string }[] }>(
-        "/providers/" + idPath(p.id) + "/models",
-        "POST",
-        {},
-      )
-    ).models;
-  });
-}
-async function testProvider(p: Provider) {
-  await run(async () => {
-    const x = await api<{ ok: boolean; latencyMs: number; text: string }>(
-      "/providers/" + idPath(p.id) + "/test",
-      "POST",
-      { model: editing.value?.model || p.model },
-    );
-    testResult.value = `${x.ok ? props.t("连接成功", "Connection succeeded") : props.t("连接失败", "Connection failed")} · ${x.latencyMs} ms\n${x.text}`;
   });
 }
 const deleting = ref<{ path: string; name: string }>();
@@ -237,23 +150,6 @@ onMounted(() => run(load));
               />{{
                 t("允许注册新 Passkey", "Allow new passkey registration")
               }}</label
-            ><label class="field"
-              ><span>{{ t("默认 AI 提供商", "Default AI provider") }}</span
-              ><Select v-model="settings.defaultProviderId"
-                ><SelectTrigger class="w-full"
-                  ><SelectValue
-                    :placeholder="
-                      t('选择提供商', 'Select provider')
-                    " /></SelectTrigger
-                ><SelectContent
-                  ><SelectItem
-                    v-for="p in settings.providers"
-                    :key="p.id"
-                    :value="p.id"
-                    >{{ p.name }}</SelectItem
-                  ></SelectContent
-                ></Select
-              ></label
             >
             <label class="field"
               ><span>{{ t("自定义 AI 指令", "Custom AI instructions") }}</span
@@ -315,45 +211,12 @@ onMounted(() => run(load));
             </div>
           </form></Card
         ><Card class="panel"
-          ><div class="row between">
-            <h2>{{ t("AI 提供商", "AI providers") }}</h2>
-            <Button variant="outline" @click="edit()">{{
-              t("添加", "Add")
-            }}</Button>
-          </div>
-          <div v-if="!settings?.providers.length && !loading" class="empty">
-            {{
-              t(
-                "未配置提供商，AI 助手暂不可用。",
-                "No providers configured. AI assistant is unavailable.",
-              )
-            }}
-          </div>
-          <div v-for="p in settings?.providers" :key="p.id" class="record">
-            <strong>{{ p.name }}</strong>
-            <p class="muted text-xs">
-              {{ p.protocol }} · {{ p.model }}<br />{{ p.baseUrl }}<br />{{
-                p.hasApiKey
-                  ? t("密钥已配置", "API key configured")
-                  : t("无密钥", "No API key")
-              }}
-            </p>
-            <div class="row">
-              <Button variant="outline" @click="edit(p)">{{
-                t("编辑 / 测试", "Edit / test")
-              }}</Button
-              ><Button
-                variant="ghost"
-                @click="
-                  deleting = {
-                    path: '/providers/' + idPath(p.id),
-                    name: p.name,
-                  }
-                "
-                >{{ t("删除", "Delete") }}</Button
-              >
-            </div>
-          </div></Card
+          ><AIProviderSettings
+            :providers="settings?.providers || []"
+            :default-provider-id="settings?.defaultProviderId || ''"
+            :t="t"
+            @updated="run(load)"
+          /></Card
         >
       </div>
       <Card class="panel self-start"
@@ -395,92 +258,7 @@ onMounted(() => run(load));
         </p></Card
       >
     </div>
-    <Dialog :open="!!editing" @update:open="!$event && (editing = undefined)"
-      ><DialogContent class="max-h-[90dvh] overflow-y-auto sm:max-w-2xl"
-        ><DialogHeader
-          ><DialogTitle>{{ t("AI 提供商", "AI provider") }}</DialogTitle
-          ><DialogDescription>{{
-            t(
-              "密钥仅发送至服务器，不保存到浏览器存储。",
-              "Keys are sent to the server, never persisted in browser storage.",
-            )
-          }}</DialogDescription></DialogHeader
-        >
-        <form v-if="editing" @submit.prevent="saveProvider">
-          <label class="field"
-            ><span>{{ t("名称", "Name") }}</span
-            ><Input v-model="editing.name" required /></label
-          ><label class="field"
-            ><span>{{ t("协议", "Protocol") }}</span
-            ><select v-model="editing.protocol">
-              <option value="openai-responses">OpenAI Responses</option>
-              <option value="anthropic">Anthropic</option>
-            </select></label
-          ><label class="field"
-            ><span>Base URL</span
-            ><Input v-model="editing.baseUrl" type="url" required /></label
-          ><label class="field"
-            ><span>{{ t("模型", "Model") }}</span
-            ><Input v-model="editing.model" required /></label
-          ><label class="field"
-            ><span>{{
-              t("模型列表 URL（可选）", "Models URL (optional)")
-            }}</span
-            ><Input v-model="editing.modelsUrl" type="url" /></label
-          ><label class="field"
-            ><span>{{
-              t("API key（留空保留）", "API key (blank keeps existing)")
-            }}</span
-            ><Input
-              v-model="editing.apiKey"
-              type="password"
-              autocomplete="off" /></label
-          ><label class="field"
-            ><span>{{
-              t("自定义 Headers（JSON）", "Custom headers (JSON)")
-            }}</span
-            ><Textarea v-model="headers" rows="3" spellcheck="false"
-          /></label>
-          <div v-if="error" class="notice error mt-4">{{ error }}</div>
-          <div class="actions">
-            <template v-if="editing.id"
-              ><Button
-                type="button"
-                variant="outline"
-                :disabled="busy"
-                @click="fetchModels(editing as Provider)"
-                >{{ t("获取模型", "Fetch models") }}</Button
-              ><Button
-                type="button"
-                variant="outline"
-                :disabled="busy"
-                @click="testProvider(editing as Provider)"
-                >{{ t("测试 AI 连接", "Test AI connection") }}</Button
-              ></template
-            ><Button :disabled="busy">{{ t("保存", "Save") }}</Button>
-          </div>
-          <p v-if="editing.id" class="muted text-xs">
-            {{
-              t(
-                "获取和测试使用服务器上已保存的配置；请先保存更改。AI 测试可能产生费用，不发送邮件。",
-                "Fetch/test use saved server configuration; save changes first. AI tests may incur costs, but send no email.",
-              )
-            }}
-          </p>
-          <pre v-if="testResult">{{ testResult }}</pre>
-          <div v-if="models.length" class="row mt-4">
-            <Button
-              v-for="m in models"
-              :key="m.id"
-              type="button"
-              variant="outline"
-              @click="editing.model = m.id"
-              >{{ m.name || m.id }}</Button
-            >
-          </div>
-        </form></DialogContent
-      ></Dialog
-    ><Dialog :open="!!deleting" @update:open="!$event && (deleting = undefined)"
+    <Dialog :open="!!deleting" @update:open="!$event && (deleting = undefined)"
       ><DialogContent
         ><DialogHeader
           ><DialogTitle>{{ t("确认删除", "Confirm deletion") }}</DialogTitle

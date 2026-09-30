@@ -57,12 +57,13 @@ export interface Message {
 export interface Provider {
   id: string;
   name: string;
-  protocol: "openai-responses" | "anthropic";
+  protocol: "openai-responses" | "openai-chat" | "anthropic";
   baseUrl: string;
   model: string;
-  modelsUrl?: string;
   headers?: Record<string, string>;
   hasApiKey?: boolean;
+  hasHeaders?: boolean;
+  outputMode?: "auto" | "json" | "prompt";
 }
 export interface Settings {
   registrationEnabled: boolean;
@@ -88,6 +89,7 @@ export class ApiError extends Error {
   constructor(
     message: string,
     public status: number,
+    public code?: string,
   ) {
     super(message);
   }
@@ -136,7 +138,7 @@ export async function api<T>(
     }
     if (!response.ok) {
       const error = data as
-        { error?: string | { message?: string }; message?: string } | undefined;
+        { error?: string | { message?: string }; message?: string; code?: string } | undefined;
       throw new ApiError(
         typeof error?.error === "string"
           ? error.error
@@ -146,6 +148,7 @@ export async function api<T>(
                 : undefined) ||
               `HTTP ${response.status}`,
         response.status,
+        error?.code,
       );
     }
     return data as T;

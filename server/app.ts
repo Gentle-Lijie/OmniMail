@@ -10,7 +10,7 @@ import { z } from "zod";
 import { createStore, id, hash } from "./store.js";
 import { configureAuth } from "./auth.js";
 import { createTasks, eventSchema } from "./tasks.js";
-import { createAI, safeURL } from "./ai.js";
+import { createAI, safeURL, ProviderError } from "./ai.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 export interface AppOptions {
@@ -53,7 +53,7 @@ export async function buildApp(options: AppOptions) {
       message = "Request failed; check configuration or input";
     reply
       .code(e.statusCode && e.statusCode >= 400 ? e.statusCode : 400)
-      .send({ error: message });
+      .send({ error: message, ...(e instanceof ProviderError ? { code: e.code, upstreamStatus: e.upstreamStatus } : {}) });
   });
   app.addHook("onSend", async (req, reply, payload) => {
     reply
@@ -80,7 +80,7 @@ export async function buildApp(options: AppOptions) {
     language: store.get("language", "zh"),
     rateLimitMs: store.get("rateLimitMs", 1000),
     prompt: store.get("prompt", ""),
-    defaultProviderId: store.get("defaultProviderId", ""),
+    defaultProviderId: ai.defaultProviderId(),
     providers: ai.list(),
     mailConfigured: !!store.get("mailWebhookUrl"),
     eventConfigured: !!store.get("eventWebhookUrl"),
@@ -109,14 +109,14 @@ export async function buildApp(options: AppOptions) {
     return settings();
   });
   app.post("/api/providers", async (req) => ai.save(req.body));
+  app.post("/api/providers/discover", async (req) => ai.discover(req.body));
+  app.post("/api/providers/verify", async (req) => ai.verify(req.body));
   app.put<{ Params: { id: string } }>("/api/providers/:id", async (req) => {
     ai.get(req.params.id);
     return ai.save(req.body, req.params.id);
   });
   app.delete<{ Params: { id: string } }>("/api/providers/:id", async (req) => {
-    db.prepare("DELETE FROM providers WHERE id=?").run(req.params.id);
-    if (store.get("defaultProviderId") === req.params.id)
-      store.set("defaultProviderId", "");
+    ai.remove(req.params.id);
     return { ok: true };
   });
   app.post<{ Params: { id: string } }>(

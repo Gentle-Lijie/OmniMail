@@ -294,7 +294,7 @@ async function createDraft() {
       payload: payload.value,
       rows: rows.value.length ? rows.value : undefined,
       templateId: templateId.value || undefined,
-      conversation: conversation.value,
+      conversation: conversation.value.slice(-50),
     });
     review.value = await api<Task>("/tasks/" + idPath(review.value.id));
     reviewOpen.value = true;

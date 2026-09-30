@@ -8,3 +8,10 @@ data/
 !.env.example
 *.log
 .DS_Store
+
+
+.playwright-cli/
+.playwright-mcp/
+.claude/
+output/
+docs/

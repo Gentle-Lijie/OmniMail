@@ -151,21 +151,19 @@ test("restart marks in-flight request uncertain without retrying it", () => {
   assert.equal(t.get(task.id).status, "uncertain");
   s.db.close();
 });
-test("both AI protocols, model listing and secret-free settings", async () => {
+test("AI protocol drafting verification, model listing and secret-free settings", async () => {
   const s = createStore(":memory:", secret);
   let called: any;
   const a = createAI(
     s,
     mock((url: any, options: any) => {
       called = { url, options };
-      return new Response(
-        JSON.stringify(
+      return Response.json(
           url.endsWith("/models")
             ? { data: [{ id: "model" }] }
             : url.endsWith("/responses")
-              ? { output: [{ content: [{ type: "output_text", text: "OK" }] }] }
-              : { content: [{ type: "text", text: "OK" }] },
-        ),
+              ? { output: [{ content: [{ type: "output_text", text: JSON.stringify({ message: "Draft ready", kind: "email", payload: { subject: "OmniMail", html: "<p>Verified draft</p>" } }) }] }] }
+              : { content: [{ type: "tool_use", name: "submit_draft", input: { message: "Draft ready", kind: "email", payload: { subject: "OmniMail", html: "<p>Verified draft</p>" } } }] },
       );
     }),
   );
@@ -178,7 +176,7 @@ test("both AI protocols, model listing and secret-free settings", async () => {
       model: "model",
     });
     assert.equal((await a.models(p.id)).models[0].id, "model");
-    assert.equal((await a.test(p.id)).text, "OK");
+    assert.equal((await a.test(p.id)).capability, "drafting");
     assert.ok(
       called.url.endsWith(
         protocol === "anthropic" ? "/messages" : "/responses",
