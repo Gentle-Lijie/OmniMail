@@ -1,4 +1,9 @@
 import { buildApp } from "./app.js";
+import { existsSync } from "node:fs";
+import { loadEnvFile } from "node:process";
+
+// Load configuration from the running directory; injected environment wins.
+if (existsSync(".env")) loadEnvFile(".env");
 const origin = process.env.APP_ORIGIN ?? "http://localhost:5173";
 if (process.env.NODE_ENV === "production" && !origin.startsWith("https://"))
   throw new Error("Production APP_ORIGIN must use HTTPS");
