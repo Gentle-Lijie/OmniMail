@@ -1,0 +1,5 @@
+# OmniMail frontend contract
+Mission: prepare auditable mail and calendar drafts; require explicit review before execution. Follow the existing CLARITY design direction, without its fixture metrics or false connection indicators.
+Tokens: white panels, #f5f7fb canvas, #202c40 ink, #64748b muted, #4265e8 action, #e2e8f0 border; system/PingFang sans typography 12/14/16/24/28px; spacing 4/8/16/24/32px; radii 8/12px. Focus 3px blue. State entrances 180ms overshooting cubic-bezier; reduced motion disables transitions.
+Do: semantic labels, honest empty/error/loading states, stable minmax grids, 44px touch controls, English/Chinese interface, sandbox HTML preview. Don't: imply accepted means delivered, auto-confirm AI actions, store credentials in browser storage, prefill third-party recipients, call live mail/calendar tests.
+Assumptions: API shares origin with cookie session; Vite dev proxies /api and /mcp to localhost:3000. Passkeys require secure context. Browser language starts Chinese; preference can be saved in Settings. Rich editor ships npm TinyMCE under GPL with no cloud API key.
