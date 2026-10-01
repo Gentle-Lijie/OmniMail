@@ -9,6 +9,8 @@
     "build": "tsc -p server/tsconfig.json && npm --prefix frontend run build",
     "start": "node dist/server/index.js",
     "test": "tsx --test server/*.test.ts frontend/tests/*.test.ts",
+    "lint": "prettier --check .",
+    "lint:fix": "prettier --write .",
     "typecheck:server": "tsc -p server/tsconfig.json --noEmit"
   },
   "dependencies": {
@@ -22,6 +24,8 @@
     "csv-parse": "^7.0.3",
     "fastify": "^5.6.1",
     "openai": "^7.23.0",
+    "mammoth": "^1.11.0",
+    "pdf-parse": "^2.4.5",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "zod": "^3.25.76"
   },
