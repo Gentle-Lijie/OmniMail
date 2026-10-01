@@ -14,4 +14,8 @@ data/
 .playwright-mcp/
 .claude/
 output/
-docs/
+docs/*
+!docs/ui-redesign/
+docs/ui-redesign/*
+!docs/ui-redesign/desk.html
+!docs/ui-redesign/README.md

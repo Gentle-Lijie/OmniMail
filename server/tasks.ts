@@ -58,8 +58,13 @@ export function renderPayload(payload: any, row: Record<string, any>) {
     Object.entries(payload).map(([key, value]) => [
       key,
       typeof value === "string"
-        ? value.replace(/{{\s*([\w.-]+)\s*}}/g, (_, field) => {
-            if (row[field] === undefined || row[field] === null)
+        ? value.replace(/{{\s*([^{}]+?)\s*}}/g, (_, field) => {
+            field = field.trim();
+            if (
+              !Object.hasOwn(row, field) ||
+              row[field] === undefined ||
+              row[field] === null
+            )
               throw new Error(`Missing field: ${field}`);
             return key === "html"
               ? escapeHTML(String(row[field]))

@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
 import { startRegistration } from "@simplewebauthn/browser";
+import AppSelect from "@/components/ui/AppSelect.vue";
+import AppCheckbox from "@/components/ui/AppCheckbox.vue";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -132,10 +134,12 @@ onMounted(() => run(load));
           <form @submit.prevent="save">
             <label class="field"
               ><span>{{ t("语言", "Language") }}</span
-              ><select v-model="language">
-                <option value="zh">中文</option>
-                <option value="en">English</option>
-              </select></label
+              ><AppSelect
+                v-model="language"
+                :options="[
+                  { value: 'zh', label: '中文' },
+                  { value: 'en', label: 'English' },
+                ]" /></label
             ><label class="field"
               ><span>{{ t("速率间隔（毫秒）", "Rate interval (ms)") }}</span
               ><Input
@@ -144,10 +148,7 @@ onMounted(() => run(load));
                 min="0"
                 required /></label
             ><label class="row mt-4"
-              ><input
-                v-model="settings.registrationEnabled"
-                type="checkbox"
-              />{{
+              ><AppCheckbox v-model="settings.registrationEnabled" />{{
                 t("允许注册新 Passkey", "Allow new passkey registration")
               }}</label
             >
@@ -216,8 +217,7 @@ onMounted(() => run(load));
             :default-provider-id="settings?.defaultProviderId || ''"
             :t="t"
             @updated="run(load)"
-          /></Card
-        >
+        /></Card>
       </div>
       <Card class="panel self-start"
         ><h2>{{ t("Passkey 安全", "Passkey security") }}</h2>

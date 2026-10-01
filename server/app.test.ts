@@ -46,6 +46,18 @@ test("payload schemas enforce addresses, real dates, Beijing timezone and field 
     mail.to,
   );
 });
+test("batch rendering supports Unicode columns and rejects missing values", () => {
+  assert.deepEqual(
+    renderPayload(
+      { subject: "给 {{ 姓名 }} 的通知", html: "<p>{{公司 名称}}</p>" },
+      { 姓名: "林悦", "公司 名称": "<客户>" },
+    ),
+    { subject: "给 林悦 的通知", html: "<p>&lt;客户&gt;</p>" },
+  );
+  assert.throws(() => renderPayload({ html: "{{姓名}}" }, {}));
+  assert.throws(() => renderPayload({ html: "{{toString}}" }, {}));
+});
+
 test("batch rendering escapes HTML values and rejects missing fields", () => {
   assert.equal(
     renderPayload(
@@ -159,11 +171,44 @@ test("AI protocol drafting verification, model listing and secret-free settings"
     mock((url: any, options: any) => {
       called = { url, options };
       return Response.json(
-          url.endsWith("/models")
-            ? { data: [{ id: "model" }] }
-            : url.endsWith("/responses")
-              ? { output: [{ content: [{ type: "output_text", text: JSON.stringify({ message: "Draft ready", kind: "email", payload: { subject: "OmniMail", html: "<p>Verified draft</p>" } }) }] }] }
-              : { content: [{ type: "tool_use", name: "submit_draft", input: { message: "Draft ready", kind: "email", payload: { subject: "OmniMail", html: "<p>Verified draft</p>" } } }] },
+        url.endsWith("/models")
+          ? { data: [{ id: "model" }] }
+          : url.endsWith("/responses")
+            ? {
+                output: [
+                  {
+                    content: [
+                      {
+                        type: "output_text",
+                        text: JSON.stringify({
+                          message: "Draft ready",
+                          kind: "email",
+                          payload: {
+                            subject: "OmniMail",
+                            html: "<p>Verified draft</p>",
+                          },
+                        }),
+                      },
+                    ],
+                  },
+                ],
+              }
+            : {
+                content: [
+                  {
+                    type: "tool_use",
+                    name: "submit_draft",
+                    input: {
+                      message: "Draft ready",
+                      kind: "email",
+                      payload: {
+                        subject: "OmniMail",
+                        html: "<p>Verified draft</p>",
+                      },
+                    },
+                  },
+                ],
+              },
       );
     }),
   );

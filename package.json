@@ -8,7 +8,7 @@
     "dev:server": "tsx watch server/index.ts",
     "build": "tsc -p server/tsconfig.json && npm --prefix frontend run build",
     "start": "node dist/server/index.js",
-    "test": "tsx --test server/*.test.ts",
+    "test": "tsx --test server/*.test.ts frontend/tests/*.test.ts",
     "typecheck:server": "tsc -p server/tsconfig.json --noEmit"
   },
   "dependencies": {

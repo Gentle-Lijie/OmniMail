@@ -12,10 +12,17 @@ import {
   Settings as SettingsIcon,
   Cable,
   ArrowUpRight,
+  Moon,
+  Sun,
+  ShieldCheck,
+  LogOut,
+  RefreshCw,
+  Plus,
+  Copy,
+  KeyRound,
 } from "lucide-vue-next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import {
   Dialog,
@@ -24,8 +31,12 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import WorkspaceView from "@/components/WorkspaceView.vue";
+import TaskContent from "@/components/TaskContent.vue";
+import AppSelect from "@/components/ui/AppSelect.vue";
+import AppCheckbox from "@/components/ui/AppCheckbox.vue";
 import HtmlEditor from "@/components/HtmlEditor.vue";
+import { fieldsIn } from "@/lib/mailMerge";
 import SettingsPage from "@/components/SettingsPage.vue";
 import {
   api,
@@ -37,7 +48,6 @@ import {
   type Task,
   type Kind,
   type Payload,
-  type Message,
   type Key,
 } from "@/lib/api";
 import { i18n, translate } from "@/lib/i18n";
@@ -55,6 +65,23 @@ const t = (zh: string, en: string) => {
   return translate(zh, en);
 };
 const page = ref("dashboard");
+const workspaceBusy = ref(false);
+const humanConfirmed = ref(false);
+const dark = ref(false);
+try {
+  dark.value = localStorage.getItem("omnimail-theme") === "dark";
+} catch {}
+watch(
+  dark,
+  (value) => {
+    document.documentElement.classList.toggle("dark", value);
+    try {
+      localStorage.setItem("omnimail-theme", value ? "dark" : "light");
+    } catch {}
+  },
+  { immediate: true },
+);
+
 const pages = computed(() => [
   { id: "dashboard", name: t("工作台", "Workspace"), icon: LayoutDashboard },
   { id: "history", name: t("历史", "History"), icon: History },
@@ -88,6 +115,7 @@ async function run(fn: () => Promise<void>) {
 }
 async function status() {
   loading.value = true;
+  error.value = "";
   try {
     auth.value = await api<AuthStatus>("/auth/status");
     setCsrf(auth.value.csrfToken);
@@ -124,23 +152,18 @@ async function register() {
 }
 const templates = ref<Template[]>([]);
 const tasks = ref<Task[]>([]);
-const stats = ref<Record<string, number>>();
 const keys = ref<Key[]>([]);
 async function loadPage() {
   loading.value = true;
   try {
-    if (page.value === "dashboard") {
-      const [s, ts] = await Promise.all([
-        api<Record<string, number>>("/dashboard"),
+    if (["dashboard", "history", "templates"].includes(page.value)) {
+      const [loadedTemplates, loadedTasks] = await Promise.all([
         api<Template[]>("/templates"),
+        api<Task[]>("/tasks"),
       ]);
-      stats.value = s;
-      templates.value = ts;
-    } else if (page.value === "history")
-      tasks.value = await api<Task[]>("/tasks");
-    else if (page.value === "templates")
-      templates.value = await api<Template[]>("/templates");
-    else if (page.value === "mcp") keys.value = await api<Key[]>("/mcp/keys");
+      templates.value = loadedTemplates;
+      tasks.value = loadedTasks;
+    } else if (page.value === "mcp") keys.value = await api<Key[]>("/mcp/keys");
   } finally {
     loading.value = false;
   }
@@ -165,15 +188,11 @@ const payload = ref<Payload>({
   subject: "",
   html: "",
 });
-const templateId = ref("");
-const rows = ref<Record<string, unknown>[]>([]);
-const columns = ref<string[]>([]);
-const fileName = ref("");
-const conversation = ref<Message[]>([]);
-const message = ref("");
-const mapping = ref<Record<string, string>>();
 const review = ref<Task>();
 const reviewOpen = ref(false);
+watch(reviewOpen, () => {
+  humanConfirmed.value = false;
+});
 const detail = ref<Task>();
 const filter = ref("all");
 const templateFilter = ref("all");
@@ -205,11 +224,24 @@ const statuses = [
   "uncertain",
   "cancelled",
 ] as const;
+const formatDate = (value: string) => {
+  const date = new Date(value);
+  return Number.isFinite(date.getTime())
+    ? new Intl.DateTimeFormat(language.value === "en" ? "en-GB" : "zh-CN", {
+        dateStyle: "medium",
+        timeStyle: "short",
+        timeZone: "Asia/Shanghai",
+      }).format(date)
+    : value;
+};
+const kindLabel = (value: Kind) =>
+  value === "email" ? t("邮件", "Email") : t("日程", "Event");
 const stateLabel = (s: string) =>
   t(
     (
       {
         draft: "草稿",
+        pending: "待执行",
         queued: "排队中",
         running: "执行中",
         accepted: "接口已接收",
@@ -234,75 +266,14 @@ const filtered = computed(() =>
       (!toDate.value || x.createdAt.slice(0, 10) <= toDate.value),
   ),
 );
-function changeKind(value: string | number) {
-  kind.value = value as Kind;
-  payload.value =
-    kind.value === "email"
-      ? { to: "", cc: "", bcc: "", subject: "", html: "" }
-      : {
-          subject: "",
-          start: "",
-          end: "",
-          requiredAttendees: "",
-          optionalAttendees: "",
-          location: "",
-          html: "",
-        };
-  templateId.value = "";
-  conversation.value = [];
-  review.value = undefined;
-}
-function applyTemplate() {
-  const x = templates.value.find((x) => x.id === templateId.value);
-  if (x) {
-    changeKind(x.kind);
-    templateId.value = x.id;
-    payload.value.subject = x.subject;
-    payload.value.html = x.html;
-  }
-}
-function validate() {
-  if (
-    !payload.value.subject.trim() ||
-    (kind.value === "email" && !payload.value.html.trim())
-  )
-    throw Error(
-      t(
-        "请填写主题；邮件还需填写正文",
-        "Subject is required; email also requires a body",
-      ),
-    );
-  if (kind.value === "email" && !payload.value.to.trim())
-    throw Error(
-      t("请填写收件人或映射占位符", "Enter recipients or mapped placeholders"),
-    );
-  if (
-    kind.value === "event" &&
-    (!payload.value.start ||
-      !payload.value.end ||
-      payload.value.end <= payload.value.start)
-  )
-    throw Error(
-      t("请填写有效的开始和结束时间", "Enter a valid start and end time"),
-    );
-}
-async function createDraft() {
-  await run(async () => {
-    validate();
-    review.value = await api<Task>("/tasks", "POST", {
-      kind: kind.value,
-      payload: payload.value,
-      rows: rows.value.length ? rows.value : undefined,
-      templateId: templateId.value || undefined,
-      conversation: conversation.value.slice(-50),
-    });
-    review.value = await api<Task>("/tasks/" + idPath(review.value.id));
-    reviewOpen.value = true;
-  });
-}
 async function confirm() {
   await run(async () => {
-    if (!review.value) return;
+    if (
+      !review.value ||
+      !humanConfirmed.value ||
+      review.value.status !== "draft"
+    )
+      return;
     await api("/tasks/" + idPath(review.value.id) + "/confirm", "POST", {});
     detail.value = await api<Task>("/tasks/" + idPath(review.value.id));
     reviewOpen.value = false;
@@ -325,61 +296,6 @@ async function cancelTask(x: Task) {
     await api("/tasks/" + idPath(x.id) + "/cancel", "POST", {});
     detail.value = await api<Task>("/tasks/" + idPath(x.id));
     await loadPage();
-  });
-}
-async function importFile(event: Event) {
-  const file = (event.target as HTMLInputElement).files?.[0];
-  if (!file) return;
-  await run(async () => {
-    const form = new FormData();
-    form.append("file", file);
-    const data = await api<{
-      columns: string[];
-      rows: Record<string, unknown>[];
-      count: number;
-    }>("/import", "POST", form);
-    columns.value = data.columns;
-    rows.value = data.rows;
-    fileName.value = file.name;
-    success.value = t(`已解析 ${data.count} 行`, `Parsed ${data.count} rows`);
-  });
-  (event.target as HTMLInputElement).value = "";
-}
-async function ask() {
-  if (!message.value.trim()) return;
-  await run(async () => {
-    const text = message.value;
-    const res = await api<{
-      message: string;
-      kind: Kind;
-      payload: Payload;
-      templateId?: string;
-      mapping?: Record<string, string>;
-    }>("/agent", "POST", {
-      message: text,
-      conversation: conversation.value,
-      kind: kind.value,
-      payload: payload.value,
-      columns: columns.value,
-      sampleRows: rows.value
-        .slice(0, 2)
-        .map((row) =>
-          Object.fromEntries(
-            Object.keys(row).map((key) => [key, "[REDACTED]"]),
-          ),
-        ),
-      templateId: templateId.value || undefined,
-    });
-    conversation.value.push(
-      { role: "user", content: text },
-      { role: "assistant", content: res.message },
-    );
-    kind.value = res.kind;
-    payload.value = res.payload;
-    templateId.value = res.templateId || "";
-    mapping.value = res.mapping;
-    message.value = "";
-    review.value = undefined;
   });
 }
 const templateEdit = ref<Partial<Template>>();
@@ -480,19 +396,6 @@ const navigator = window.navigator;
 const placeholderHint = computed(() =>
   t("支持双花括号动态字段", "Supports double-brace placeholders"),
 );
-const fieldLabel = (field: string) =>
-  (
-    ({
-      to: t("收件人", "To"),
-      cc: t("抄送", "CC"),
-      bcc: t("密送", "BCC"),
-      requiredAttendees: t("必需参与者", "Required attendees"),
-      optionalAttendees: t("可选参与者", "Optional attendees"),
-      start: t("开始 · 北京时间", "Start · Beijing time"),
-      end: t("结束 · 北京时间", "End · Beijing time"),
-      location: t("地点", "Location"),
-    }) as Record<string, string>
-  )[field];
 </script>
 <template>
   <div v-if="!auth?.authenticated" class="auth page-enter">
@@ -573,23 +476,37 @@ const fieldLabel = (field: string) =>
     >
   </div>
   <div v-else class="shell">
-    <aside class="sidebar">
-      <div class="brand"><ArrowUpRight />OmniMail</div>
+    <aside class="sidebar rail">
+      <div class="brand rail-brand" aria-label="OmniMail"><Mail /></div>
       <nav :aria-label="t('主导航', 'Main navigation')">
-        <button
+        <Button
+          variant="ghost"
           v-for="item in pages"
           :key="item.id"
           :class="{ active: page === item.id }"
           :aria-current="page === item.id ? 'page' : undefined"
+          :disabled="busy || workspaceBusy"
+          :title="item.name"
           @click="page = item.id"
         >
-          <component :is="item.icon" :size="20" />{{ item.name }}
-        </button>
+          <component :is="item.icon" :size="20" /><span>{{ item.name }}</span>
+        </Button>
       </nav>
-      <div class="footer">
-        {{ t("Passkey 安全会话", "Passkey secured session") }}<br />{{
-          t("AI 仅准备草稿，执行需确认。", "AI drafts. You confirm execution.")
-        }}
+      <div class="rail-footer">
+        <Button
+          variant="ghost"
+          size="icon"
+          :aria-label="t('切换明暗主题', 'Toggle theme')"
+          :title="t('切换明暗主题', 'Toggle theme')"
+          @click="dark = !dark"
+          ><Sun v-if="dark" /><Moon v-else
+        /></Button>
+        <div
+          class="session-avatar"
+          :title="t('Passkey 安全会话', 'Passkey secured session')"
+        >
+          <ShieldCheck :size="18" />
+        </div>
       </div>
     </aside>
     <main class="min-w-0">
@@ -605,8 +522,9 @@ const fieldLabel = (field: string) =>
             @click="language = language === 'en' ? 'zh' : 'en'"
             >{{ language === "en" ? "中文" : "EN" }}</Button
           ><Button
-            variant="outline"
-            :disabled="busy"
+            variant="ghost"
+            :aria-label="t('退出', 'Sign out')"
+            :disabled="busy || workspaceBusy"
             @click="
               run(async () => {
                 await api('/auth/logout', 'POST', {});
@@ -614,11 +532,13 @@ const fieldLabel = (field: string) =>
                 await status();
               })
             "
-            >{{ t("退出", "Sign out") }}</Button
+            ><LogOut :size="15" /><span class="signout-label">{{
+              t("退出", "Sign out")
+            }}</span></Button
           >
         </div>
       </header>
-      <div class="content">
+      <div class="content" :class="{ 'desk-content': page === 'dashboard' }">
         <div v-if="error" class="notice error mb-4" role="alert">
           {{ error }}
           <Button variant="ghost" :disabled="busy" @click="run(loadPage)">{{
@@ -631,263 +551,83 @@ const fieldLabel = (field: string) =>
         <div v-if="loading" class="notice mb-4" role="status">
           {{ t("正在加载…", "Loading…") }}
         </div>
-        <section v-if="page === 'dashboard'" class="page-enter">
-          <div class="heading">
-            <div class="eyebrow">LESS BUSYWORK. MORE IMPACT.</div>
-            <h1>
-              {{
-                t(
-                  "让每封邮件，恰到好处。",
-                  "Thoughtful messages. Less busywork.",
-                )
-              }}
-            </h1>
-            <p class="muted">
-              {{
-                t(
-                  "准备、预览、确认。每一步都可追溯。",
-                  "Prepare, preview, confirm. Every step is traceable.",
-                )
-              }}
-            </p>
-          </div>
-          <div class="stats">
-            <Card
-              v-for="metric in [
-                {
-                  key: 'tasks',
-                  label: t('任务总数', 'Total tasks'),
-                },
-                { key: 'templates', label: t('可用模板', 'Templates') },
-                {
-                  key: 'accepted',
-                  label: t('接口已接收', 'Interface accepted'),
-                },
-                { key: 'failed', label: t('失败', 'Failed') },
-              ]"
-              :key="metric.key"
-              class="stat"
-              ><small>{{ metric.label }}</small
-              ><strong>{{ stats?.[metric.key] ?? "—" }}</strong></Card
-            >
-          </div>
-          <div class="workspace">
-            <Card class="panel"
-              ><div class="row between">
-                <h2>{{ t("准备任务", "Prepare a task") }}</h2>
-                <Tabs :model-value="kind" @update:model-value="changeKind"
-                  ><TabsList
-                    ><TabsTrigger value="email">{{
-                      t("邮件", "Email")
-                    }}</TabsTrigger
-                    ><TabsTrigger value="event">{{
-                      t("日程", "Event")
-                    }}</TabsTrigger></TabsList
-                  ></Tabs
-                >
-              </div>
-              <label class="field"
-                ><span>{{ t("使用模板", "Use template") }}</span
-                ><select v-model="templateId" @change="applyTemplate">
-                  <option value="">{{ t("不使用模板", "No template") }}</option>
-                  <option v-for="x in templates" :key="x.id" :value="x.id">
-                    {{ x.name }} · v{{ x.version }}
-                  </option>
-                </select></label
-              >
-              <div class="form-grid">
-                <label
-                  v-for="field in kind === 'email'
-                    ? ['to', 'cc', 'bcc']
-                    : [
-                        'requiredAttendees',
-                        'optionalAttendees',
-                        'start',
-                        'end',
-                        'location',
-                      ]"
-                  :key="field"
-                  class="field"
-                  :class="{ full: field === 'to' }"
-                  ><span>{{ fieldLabel(field) }}</span
-                  ><Input
-                    v-model="payload[field]"
-                    :type="
-                      ['start', 'end'].includes(field)
-                        ? 'datetime-local'
-                        : 'text'
-                    " /></label
-                ><label class="field full"
-                  ><span
-                    >{{ t("主题", "Subject") }} · {{ placeholderHint }}</span
-                  ><Input v-model="payload.subject"
-                /></label>
-              </div>
-              <div class="field">
-                <span>{{ t("HTML 正文", "HTML body") }}</span
-                ><HtmlEditor v-model="payload.html" :t="t" />
-              </div>
-              <div class="actions">
-                <Button
-                  variant="outline"
-                  :disabled="busy"
-                  @click="editTemplate()"
-                  >{{ t("保存为模板", "Save as template") }}</Button
-                ><Button :disabled="busy" @click="createDraft">{{
-                  busy
-                    ? t("处理中…", "Working…")
-                    : t("预览并确认", "Review & confirm")
-                }}</Button>
-              </div>
-              <p class="muted text-xs">
+        <WorkspaceView
+          v-show="page === 'dashboard'"
+          :templates="templates"
+          :tasks="tasks"
+          :t="t"
+          :dark="dark"
+          :visible="page === 'dashboard'"
+          :locked="busy"
+          @expired="status"
+          @busy="workspaceBusy = $event"
+          @review="
+            review = $event;
+            reviewOpen = true;
+          "
+          @saved="run(loadPage)"
+          @settings="page = 'settings'"
+          @template="
+            (draftKind, draftPayload) => {
+              kind = draftKind;
+              payload = draftPayload;
+              editTemplate();
+            }
+          "
+        />
+        <section v-if="page === 'history'" class="page-enter">
+          <div class="heading row between">
+            <div>
+              <h1>{{ t("执行历史", "Execution history") }}</h1>
+              <p class="muted">
                 {{
                   t(
-                    "测试发送也使用此流程。收件人必须手动填写；不会自动发送。",
-                    "Tests use this same flow. Enter recipients yourself; nothing sends automatically.",
+                    "接口已接收不代表实际发送成功。不确定状态请人工核实，避免重复发送。",
+                    "Accepted does not mean delivered. Verify uncertain outcomes before retrying.",
                   )
                 }}
-              </p></Card
-            >
-            <div class="stack">
-              <Card class="panel"
-                ><h2 class="text-primary">
-                  ✧ {{ t("AI 草稿助手", "AI drafting assistant") }}
-                </h2>
-                <p class="muted text-xs">
-                  {{
-                    t(
-                      "只修改草稿；未配置提供商时将显示 API 错误。",
-                      "Only edits drafts; API errors are shown if no provider is configured.",
-                    )
-                  }}
-                </p>
-                <div class="chat">
-                  <div v-if="!conversation.length" class="empty">
-                    {{
-                      t(
-                        "描述你的想法，AI 帮你准备。",
-                        "Describe your intent to prepare a draft.",
-                      )
-                    }}
-                  </div>
-                  <div
-                    v-for="(x, i) in conversation"
-                    :key="i"
-                    class="bubble"
-                    :class="x.role"
-                  >
-                    <small>{{
-                      x.role === "user" ? t("你", "You") : "OmniMail"
-                    }}</small>
-                    <div>{{ x.content }}</div>
-                  </div>
-                </div>
-                <form @submit.prevent="ask">
-                  <label class="field"
-                    ><span>{{ t("你的指令", "Your instruction") }}</span
-                    ><Textarea v-model="message" rows="3" /></label
-                  ><Button class="mt-3" :disabled="busy || !message.trim()">{{
-                    t("更新草稿", "Update draft")
-                  }}</Button>
-                </form>
-                <pre v-if="mapping">{{ mapping }}</pre>
-              </Card>
-              <Card class="panel"
-                ><h2>{{ t("批量数据", "Batch data") }}</h2>
-                <label class="field"
-                  ><span>{{ t("导入 CSV / Excel", "Import CSV / Excel") }}</span
-                  ><input
-                    type="file"
-                    accept=".csv,.xlsx,.xls"
-                    :disabled="busy"
-                    @change="importFile"
-                /></label>
-                <p v-if="!rows.length" class="muted">
-                  {{
-                    t(
-                      "未导入数据。默认单次任务。",
-                      "No imported rows. Single task by default.",
-                    )
-                  }}
-                </p>
-                <template v-else
-                  ><p>
-                    {{ fileName }} · {{ rows.length }} {{ t("行", "rows") }}
-                  </p>
-                  <div class="row">
-                    <span
-                      v-for="column in columns"
-                      :key="column"
-                      class="badge"
-                      >{{ column }}</span
-                    >
-                  </div>
-                  <p class="muted text-xs">
-                    {{
-                      t(
-                        "AI 样本值已脱敏；服务器替换占位符。",
-                        "AI sample values are redacted; server substitutes placeholders.",
-                      )
-                    }}
-                  </p>
-                  <Button
-                    variant="outline"
-                    @click="
-                      rows = [];
-                      columns = [];
-                      fileName = '';
-                    "
-                    >{{ t("清除数据", "Clear data") }}</Button
-                  ></template
-                ></Card
-              >
+              </p>
             </div>
-          </div>
-        </section>
-        <section v-if="page === 'history'" class="page-enter">
-          <div class="heading">
-            <h1>{{ t("任务历史", "Task history") }}</h1>
-            <p class="muted">
-              {{
-                t(
-                  "接口已接收不代表实际发送成功。不确定状态请人工核实，避免重复发送。",
-                  "Accepted does not mean delivered. Verify uncertain outcomes before retrying.",
-                )
-              }}
-            </p>
+            <Button variant="outline" :disabled="busy" @click="run(loadPage)"
+              ><RefreshCw />{{ t("刷新", "Refresh") }}</Button
+            >
           </div>
           <Card class="panel"
             ><label class="field"
               ><span>{{ t("状态筛选", "Filter status") }}</span
-              ><select v-model="filter">
-                <option value="all">{{ t("所有状态", "All statuses") }}</option>
-                <option v-for="s in statuses" :key="s" :value="s">
-                  {{ stateLabel(s) }}
-                </option>
-              </select></label
-            >
+              ><AppSelect
+                v-model="filter"
+                :options="[
+                  { value: 'all', label: t('所有状态', 'All statuses') },
+                  ...statuses.map((status) => ({
+                    value: status,
+                    label: stateLabel(status),
+                  })),
+                ]"
+            /></label>
             <div class="form-grid">
               <label class="field"
                 ><span>{{ t("模板筛选", "Template") }}</span
-                ><select v-model="templateFilter">
-                  <option value="all">
-                    {{ t("全部模板", "All templates") }}
-                  </option>
-                  <option v-for="x in templates" :key="x.id" :value="x.id">
-                    {{ x.name }}
-                  </option>
-                </select></label
-              >
+                ><AppSelect
+                  v-model="templateFilter"
+                  :options="[
+                    { value: 'all', label: t('全部模板', 'All templates') },
+                    ...templates.map((item) => ({
+                      value: item.id,
+                      label: item.name,
+                    })),
+                  ]"
+              /></label>
               <label class="field"
                 ><span>{{ t("调用来源", "Source") }}</span
-                ><select v-model="sourceFilter">
-                  <option value="all">
-                    {{ t("全部来源", "All sources") }}
-                  </option>
-                  <option value="web">Web</option>
-                  <option value="mcp">MCP</option>
-                </select></label
-              >
+                ><AppSelect
+                  v-model="sourceFilter"
+                  :options="[
+                    { value: 'all', label: t('全部来源', 'All sources') },
+                    { value: 'web', label: 'Web' },
+                    { value: 'mcp', label: 'MCP' },
+                  ]"
+              /></label>
               <label class="field"
                 ><span>{{ t("开始日期", "From date") }}</span
                 ><Input v-model="fromDate" type="date"
@@ -904,7 +644,9 @@ const fieldLabel = (field: string) =>
               <div>
                 <strong>{{ x.summary || x.id }}</strong>
                 <p class="muted text-xs">
-                  {{ x.kind }} · {{ x.source }} · {{ x.createdAt }}
+                  {{ kindLabel(x.kind) }} ·
+                  {{ x.source.startsWith("mcp:") ? "MCP" : "Web" }} ·
+                  {{ formatDate(x.createdAt) }}
                 </p>
                 <span class="badge">{{ stateLabel(x.status) }}</span> ·
                 {{ t("总数", "Total") }} {{ x.total }} /
@@ -925,17 +667,47 @@ const fieldLabel = (field: string) =>
                 detail.template.version
               }}
             </p>
-            <pre>{{ detail.payload }}</pre>
+            <TaskContent :key="detail.id" :task="detail" :t="t" />
             <p>
               {{ t("接口调用数", "Interface calls") }}: {{ detail.total }} ·
               {{ t("已接收", "Accepted") }} {{ detail.accepted }} ·
               {{ t("失败", "Failed") }}
               {{ detail.failed }}
             </p>
-            <div v-for="x in detail.items" :key="x.id" class="record">
-              <span class="badge">{{ stateLabel(x.status) }}</span>
-              <pre>{{ x.payload }}</pre>
-              <p v-if="x.error" class="notice error">{{ x.error }}</p>
+            <div class="merge-table-scroll">
+              <table class="data-table task-results">
+                <caption class="sr-only">
+                  {{
+                    t("逐条执行结果", "Per-item results")
+                  }}
+                </caption>
+                <thead>
+                  <tr>
+                    <th>
+                      {{ t("收件人 / 参会者", "Recipients / attendees") }}
+                    </th>
+                    <th>{{ t("状态", "Status") }}</th>
+                    <th>{{ t("结果说明", "Result details") }}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="item in detail.items" :key="item.id">
+                    <td>
+                      {{
+                        item.payload.to ||
+                        item.payload.requiredAttendees ||
+                        t("无", "None")
+                      }}
+                    </td>
+                    <td>
+                      <span class="badge">{{ stateLabel(item.status) }}</span>
+                    </td>
+                    <td>
+                      {{ item.error || t("无附加错误", "No additional error") }}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
             <div v-for="(x, i) in detail.conversation" :key="i" class="bubble">
               {{ x.role }}: {{ x.content }}
@@ -970,9 +742,9 @@ const fieldLabel = (field: string) =>
               <h1>{{ t("模板管理", "Templates") }}</h1>
               <p class="muted">{{ placeholderHint }}</p>
             </div>
-            <Button @click="editTemplate()">{{
-              t("新建模板", "New template")
-            }}</Button>
+            <Button @click="editTemplate()"
+              ><Plus />{{ t("新建模板", "New template") }}</Button
+            >
           </div>
           <Card class="panel"
             ><div v-if="!templates.length && !loading" class="empty">
@@ -987,7 +759,9 @@ const fieldLabel = (field: string) =>
               <div class="row between">
                 <div>
                   <strong>{{ x.name }}</strong>
-                  <span class="badge">{{ x.kind }} · v{{ x.version }}</span>
+                  <span class="badge"
+                    >{{ kindLabel(x.kind) }} · v{{ x.version }}</span
+                  >
                   <p class="muted">{{ x.description }}</p>
                   <p>{{ x.subject }}</p>
                 </div>
@@ -1038,7 +812,9 @@ const fieldLabel = (field: string) =>
           </div>
           <div class="workspace">
             <Card class="panel"
-              ><h2>{{ t("API 密钥", "API keys") }}</h2>
+              ><h2 class="icon-label">
+                <KeyRound :size="18" />{{ t("API 密钥", "API keys") }}
+              </h2>
               <form @submit.prevent="createKey">
                 <label class="field"
                   ><span>{{ t("密钥名称", "Key name") }}</span
@@ -1076,7 +852,7 @@ const fieldLabel = (field: string) =>
                 <div>
                   {{ x.name }}
                   <p class="muted text-xs">
-                    {{ x.prefix }}… · {{ x.createdAt }}
+                    {{ x.prefix }}… · {{ formatDate(x.createdAt) }}
                   </p>
                 </div>
                 <Button
@@ -1130,8 +906,10 @@ const fieldLabel = (field: string) =>
         }}</DialogDescription></DialogHeader
       ><template v-if="review"
         ><p>
-          {{ review.kind }} · {{ t("接口调用数", "Interface calls") }}:
-          {{ review.total }} ·
+          {{
+            review.kind === "email" ? t("邮件", "Email") : t("日程", "Event")
+          }}
+          · {{ t("接口调用数", "Interface calls") }}: {{ review.total }} ·
           {{
             t(
               "收件地址数（含抄送/密送）",
@@ -1139,11 +917,18 @@ const fieldLabel = (field: string) =>
             )
           }}: {{ recipientCount(review) }}
         </p>
-        <pre>{{ review.payload }}</pre>
-        <div v-for="x in review.items" :key="x.id" class="record">
-          <pre>{{ x.payload }}</pre>
-          <p v-if="x.error" class="notice error">{{ x.error }}</p>
-        </div>
+        <TaskContent :key="review.id" :task="review" :t="t" /><label
+          class="confirm-check"
+          ><AppCheckbox
+            v-model="humanConfirmed"
+            :disabled="busy || review.status !== 'draft'"
+          /><span>{{
+            t(
+              "我已审核收件人及整批内容，同意执行。",
+              "I reviewed recipients and the entire batch and authorize execution.",
+            )
+          }}</span></label
+        >
         <div v-if="error" class="notice error" role="alert">{{ error }}</div>
         <div class="actions">
           <Button
@@ -1152,7 +937,7 @@ const fieldLabel = (field: string) =>
             @click="reviewOpen = false"
             >{{ t("保留草稿", "Keep draft") }}</Button
           ><Button
-            :disabled="busy || review.status !== 'draft'"
+            :disabled="busy || !humanConfirmed || review.status !== 'draft'"
             @click="confirm"
             >{{ t("确认执行", "Confirm execution") }}</Button
           >
@@ -1182,14 +967,27 @@ const fieldLabel = (field: string) =>
           ><Input v-model="templateEdit.description" /></label
         ><label class="field"
           ><span>{{ t("类型", "Kind") }}</span
-          ><select v-model="templateEdit.kind">
-            <option value="email">{{ t("邮件", "Email") }}</option>
-            <option value="event">{{ t("日程", "Event") }}</option>
-          </select></label
+          ><AppSelect
+            v-model="templateEdit.kind"
+            :options="[
+              { value: 'email', label: t('邮件', 'Email') },
+              { value: 'event', label: t('日程', 'Event') },
+            ]" /></label
         ><label class="field"
           ><span>{{ t("主题", "Subject") }}</span
           ><Input v-model="templateEdit.subject" required /></label
-        ><HtmlEditor v-model="templateEdit.html!" :t="t" />
+        ><HtmlEditor
+          v-model="templateEdit.html!"
+          :t="t"
+          :dark="dark"
+          :disabled="busy"
+          :fields="
+            fieldsIn({
+              subject: templateEdit.subject || '',
+              html: templateEdit.html || '',
+            })
+          "
+        />
         <div v-if="error" class="notice error">{{ error }}</div>
         <div class="actions">
           <Button
