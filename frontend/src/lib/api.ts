@@ -1,3 +1,5 @@
+import { readAgentResponse, AgentStreamError, type AgentProgress } from "./agent";
+
 export interface AuthStatus {
   authenticated: boolean;
   registrationEnabled: boolean;
@@ -53,6 +55,10 @@ export interface Task {
 export interface Message {
   role: string;
   content: string;
+  attachments?: { name: string; size: number }[];
+  thinking?: string;
+  stages?: string[];
+  status?: "pending" | "complete" | "error" | "cancelled";
 }
 export interface Provider {
   id: string;
@@ -98,8 +104,10 @@ export async function api<T>(
   path: string,
   method = "GET",
   body?: unknown,
+  options: { signal?: AbortSignal; onProgress?: (event: AgentProgress) => void } = {},
 ): Promise<T> {
   const headers: Record<string, string> = { Accept: "application/json" };
+  if (options.onProgress) headers.Accept = "text/event-stream";
   if (method !== "GET" && !/^\/auth\/(register|login)\//.test(path)) {
     if (!csrf)
       throw new ApiError(
@@ -124,8 +132,9 @@ export async function api<T>(
           : multipart
             ? (body as FormData)
             : JSON.stringify(body),
-      signal: controller.signal,
+      signal: options.signal ? AbortSignal.any([controller.signal, options.signal]) : controller.signal,
     });
+    if (response.ok && options.onProgress && response.headers.get("content-type")?.includes("text/event-stream")) return await readAgentResponse<T>(response, options.onProgress);
     const text = await response.text();
     let data: unknown;
     try {
@@ -153,6 +162,8 @@ export async function api<T>(
     }
     return data as T;
   } catch (e) {
+    if (e instanceof AgentStreamError) throw new ApiError(e.message, 400, e.code);
+    if (options.signal?.aborted) throw new ApiError("Request cancelled", 0, "cancelled");
     if (e instanceof ApiError) throw e;
     throw new ApiError(
       e instanceof Error && e.name === "AbortError"
