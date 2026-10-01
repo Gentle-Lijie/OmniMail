@@ -4,6 +4,7 @@ import multipart from "@fastify/multipart";
 import staticPlugin from "@fastify/static";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
+import { PassThrough } from "node:stream";
 import { parse } from "csv-parse/sync";
 import * as XLSX from "xlsx";
 import { z } from "zod";
@@ -11,6 +12,7 @@ import { createStore, id, hash } from "./store.js";
 import { configureAuth } from "./auth.js";
 import { createTasks, eventSchema } from "./tasks.js";
 import { createAI, safeURL, ProviderError } from "./ai.js";
+import { readAgentAttachment } from "./agentAttachments.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 export interface AppOptions {
@@ -126,7 +128,36 @@ export async function buildApp(options: AppOptions) {
   app.post<{ Params: { id: string } }>("/api/providers/:id/test", async (req) =>
     ai.test(req.params.id, (req.body as any)?.model),
   );
-  app.post("/api/agent", async (req) => ai.agent(req.body));
+  app.post("/api/agent/attachments", async (req) => {
+    const file = await req.file();
+    if (!file) throw Error("File required");
+    return readAgentAttachment(file.filename, await file.toBuffer());
+  });
+  app.post("/api/agent", async (req, reply) => {
+    if (!req.headers.accept?.includes("text/event-stream")) return ai.agent(req.body);
+    const stream = new PassThrough();
+    const controller = new AbortController();
+    let lastStage = "";
+    const emit = (event: Record<string, unknown>) => {
+      if (stream.destroyed || controller.signal.aborted) return;
+      if (event.type === "progress") {
+        if (event.stage === lastStage) return;
+        lastStage = String(event.stage);
+      }
+      stream.write(`data: ${JSON.stringify(event)}\n\n`);
+    };
+    const heartbeat = setInterval(() => { if (!stream.destroyed) stream.write(": heartbeat\n\n"); }, 10000);
+    reply.raw.on("close", () => { controller.abort(); clearInterval(heartbeat); stream.destroy(); });
+    reply.header("Content-Type", "text/event-stream; charset=utf-8").header("X-Accel-Buffering", "no");
+    void ai.agent(req.body, { onProgress: event => emit({ ...event }), signal: controller.signal })
+      .then(result => emit({ type: "result", result }))
+      .catch(error => {
+        const message = error instanceof ProviderError ? error.message : error instanceof z.ZodError ? "Invalid Agent request or attachments" : "Agent request failed; check input and configuration";
+        emit({ type: "error", error: message, ...(error instanceof ProviderError ? { code: error.code } : {}) });
+      })
+      .finally(() => { clearInterval(heartbeat); stream.end(); });
+    return reply.send(stream);
+  });
   const templateSchema = z.object({
     name: z.string().trim().min(1).max(200),
     description: z.string().max(2000).default(""),
