@@ -46,6 +46,81 @@ test("payload schemas enforce addresses, real dates, Beijing timezone and field 
     mail.to,
   );
 });
+test("recipient schemas normalize every mail and calendar field and reject invalid leftovers", () => {
+  const input =
+    "Matthew Pike <Matthew.Pike@nottingham.edu.cn>; Anthony Graham Bellotti <Anthony-Graham.Bellotti@nottingham.edu.cn>; Chin Poo Lee <Chin-Poo.Lee@nottingham.edu.cn>";
+  const expected =
+    "Matthew.Pike@nottingham.edu.cn;Anthony-Graham.Bellotti@nottingham.edu.cn;Chin-Poo.Lee@nottingham.edu.cn";
+  const parsedMail = validatePayload("email", {
+    ...mail,
+    to: input,
+    cc: "one@example.com,two@example.com",
+    bcc: "three@example.com\nfour@example.com",
+  });
+  assert.equal((parsedMail as any).to, expected);
+  assert.equal((parsedMail as any).cc, "one@example.com;two@example.com");
+  assert.equal((parsedMail as any).bcc, "three@example.com;four@example.com");
+  const parsedEvent = validatePayload("event", {
+    ...event,
+    requiredAttendees: input,
+    optionalAttendees: "one@example.com two@example.com",
+  });
+  assert.equal((parsedEvent as any).requiredAttendees, expected);
+  assert.equal(
+    (parsedEvent as any).optionalAttendees,
+    "one@example.com;two@example.com",
+  );
+  for (const field of ["to", "cc", "bcc"])
+    assert.throws(() =>
+      validatePayload("email", {
+        ...mail,
+        [field]: "valid@example.com;bad@@example.com",
+      }),
+    );
+  for (const field of ["requiredAttendees", "optionalAttendees"])
+    assert.throws(() =>
+      validatePayload("event", {
+        ...event,
+        [field]: "valid@example.com;invalid",
+      }),
+    );
+  assert.throws(() => validatePayload("email", { ...mail, to: "，； " }));
+  assert.throws(() => validatePayload("email", { ...mail, cc: "{{邮箱}}" }));
+});
+
+test("batch tasks normalize rendered recipients before review and webhook transport", async () => {
+  const s = createStore(":memory:", secret);
+  s.set("rateLimitMs", 0);
+  s.set("mailWebhookUrl", s.encrypt("https://mock.invalid"));
+  let received: any;
+  const tasks = createTasks(
+    s,
+    mock((_url: any, options: any) => {
+      received = JSON.parse(options.body).attachments[0].content.email;
+      return new Response("", { status: 202 });
+    }),
+  );
+  try {
+    const task = tasks.create({
+      kind: "email",
+      payload: { ...mail, to: "{{邮箱}}" },
+      rows: [{ 邮箱: "客户 <first@example.com>, second@example.com" }],
+    });
+    assert.equal(task.payload.to, "{{邮箱}}");
+    assert.equal(
+      task.items[0].payload.to,
+      "first@example.com;second@example.com",
+    );
+    assert.equal(received, undefined);
+    tasks.confirm(task.id);
+    await tasks.run();
+    assert.equal(received.to, "first@example.com;second@example.com");
+  } finally {
+    await tasks.stop();
+    s.db.close();
+  }
+});
+
 test("batch rendering supports Unicode columns and rejects missing values", () => {
   assert.deepEqual(
     renderPayload(

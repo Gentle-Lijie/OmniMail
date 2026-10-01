@@ -1,14 +1,14 @@
 import { z } from "zod";
 import { id, type Store } from "./store.js";
+import { normalizeRecipients, parseRecipients } from "./recipients.js";
 const addresses = z
   .string()
   .max(10000)
   .refine(
-    (s) =>
-      !s ||
-      s.split(";").every((x) => z.string().email().safeParse(x.trim()).success),
-    "Invalid email addresses; use semicolons",
-  );
+    (s) => parseRecipients(s).every((token) => token.kind === "email"),
+    "Invalid email addresses",
+  )
+  .transform(normalizeRecipients);
 export const emailSchema = z
   .object({
     to: addresses.refine((s) => s.trim().length > 0),

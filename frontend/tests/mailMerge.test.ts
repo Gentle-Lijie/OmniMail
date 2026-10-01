@@ -71,7 +71,7 @@ test("blocks empty fields and duplicate recipients across the whole batch", () =
     issues.some((issue) => issue.row === 2 && /Duplicate/.test(issue.message)),
   );
 });
-test("manual recipients use semicolons and do not require an imported list", () => {
+test("manual recipients accept common separators without an imported list", () => {
   assert.deepEqual(
     mergeIssues(
       "email",
@@ -85,13 +85,79 @@ test("manual recipients use semicolons and do not require an imported list", () 
     ),
     [],
   );
-  assert.ok(
+  assert.deepEqual(
     mergeIssues(
       "email",
       { to: "one@example.com,two@example.com", subject: "通知", html: "正文" },
       [],
       {},
-    ).length,
+    ),
+    [],
+  );
+});
+test("all mail and attendee fields parse Outlook names and reject leftover invalid entries", () => {
+  const recipients =
+    "Matthew Pike <Matthew.Pike@nottingham.edu.cn>; Anthony Graham Bellotti <Anthony-Graham.Bellotti@nottingham.edu.cn>; Chin Poo Lee <Chin-Poo.Lee@nottingham.edu.cn>";
+  assert.deepEqual(
+    mergeIssues(
+      "email",
+      {
+        to: recipients,
+        cc: "cc@example.com\nsecond@example.com",
+        bcc: "bcc@example.com，other@example.com",
+        subject: "通知",
+        html: "正文",
+      },
+      [],
+      {},
+    ),
+    [],
+  );
+  const event = {
+    subject: "会议",
+    html: "",
+    start: "2026-10-08T10:00",
+    end: "2026-10-08T11:00",
+    requiredAttendees: recipients,
+    optionalAttendees: "optional@example.com other@example.com",
+  };
+  assert.deepEqual(mergeIssues("event", event, [], {}), []);
+  assert.ok(
+    mergeIssues(
+      "event",
+      { ...event, optionalAttendees: "good@example.com;bad@@example.com" },
+      [],
+      {},
+    ).some(
+      (issue) =>
+        issue.field === "optionalAttendees" &&
+        /Invalid email/.test(issue.message),
+    ),
+  );
+  assert.ok(
+    mergeIssues(
+      "email",
+      { to: "，；", subject: "通知", html: "正文" },
+      [],
+      {},
+    ).some((issue) => /Recipient required/.test(issue.message)),
+  );
+});
+test("imported recipients are parsed after merge field substitution", () => {
+  assert.deepEqual(
+    mergeIssues(
+      "email",
+      payload,
+      [
+        {
+          邮箱: "客户 <client@example.com>,other@example.com",
+          姓名: "客户",
+          公司: "公司",
+        },
+      ],
+      {},
+    ),
+    [],
   );
 });
 test("numeric zero and boolean false are valid merge values", () => {

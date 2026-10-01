@@ -17,7 +17,7 @@ const props = defineProps<{
   disabled?: boolean;
   fields?: string[];
 }>();
-const emit = defineEmits<{ agent: []; failed: []; ready: [] }>();
+const emit = defineEmits<{ agent: []; failed: []; ready: []; focus: [] }>();
 const model = defineModel<string>({ required: true });
 let editor: TinyEditor | undefined;
 let bookmark: ReturnType<TinyEditor["selection"]["getBookmark"]> | undefined;
@@ -25,12 +25,21 @@ function contentStyle() {
   return `${uiCss}\n${contentCss}\nbody{margin:24px;font:14px/1.85 system-ui;color:${props.dark ? "#e0e7f4" : "#253249"};background:${props.dark ? "#182131" : "#fff"};overflow-wrap:anywhere}h2{color:${props.dark ? "#7a9cff" : "#3468ed"}}.mceNonEditable{padding:2px 5px;border-radius:4px;background:${props.dark ? "#233655" : "#edf3ff"};color:${props.dark ? "#9eb8ff" : "#3468ed"};border:1px solid ${props.dark ? "#395378" : "#d9e4ff"};font:12px/1.7 ui-monospace,monospace}`;
 }
 function insert(field: string) {
-  if (!editor) return;
+  if (!editor || props.disabled) return;
+  const saved = editor.hasFocus() ? undefined : bookmark;
   editor.focus();
-  if (bookmark) editor.selection.moveToBookmark(bookmark);
-  editor.undoManager.transact(() =>
-    editor!.insertContent(escapeHtml(`{{${field}}}`)),
-  );
+  if (saved) editor.selection.moveToBookmark(saved);
+  editor.undoManager.transact(() => {
+    const selectedToken = editor!.selection
+      .getNode()
+      .closest(".mceNonEditable");
+    if (selectedToken) {
+      editor!.selection.select(selectedToken);
+      editor!.selection.collapse(false);
+    }
+    editor!.insertContent(escapeHtml(`{{${field}}}`));
+    editor!.selection.collapse(false);
+  });
   model.value = editor.getContent();
   bookmark = editor.selection.getBookmark(2, true);
 }
@@ -66,6 +75,11 @@ const init: RawEditorOptions = {
       "blur",
       () => (bookmark = instance.selection.getBookmark(2, true)),
     );
+    instance.on("SelectionChange keyup mouseup", () => {
+      if (instance.hasFocus())
+        bookmark = instance.selection.getBookmark(2, true);
+    });
+    instance.on("focus", () => emit("focus"));
     instance.on("init", () => {
       emit("ready");
       instance.addShortcut("meta+k", "OmniMail Agent", () => emit("agent"));

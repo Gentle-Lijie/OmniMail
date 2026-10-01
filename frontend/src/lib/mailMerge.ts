@@ -1,4 +1,5 @@
 import type { Kind, Payload } from "./api";
+import { parseRecipients } from "./recipients";
 export type DataRow = Record<string, unknown>;
 export interface MergeIssue {
   row: number;
@@ -93,19 +94,17 @@ export function mergeIssues(
     }
     for (const field of recipients) {
       const rendered = renderFields(payload[field] || "", row, mapping);
-      if (field === "to" && !rendered.trim())
+      const addresses = parseRecipients(rendered);
+      if (field === "to" && !addresses.length)
         issues.push({
           row: position,
           field,
           message: "请填写收件人 / Recipient required",
         });
       if (/{{/.test(rendered)) continue;
-      const addresses = rendered
-        .split(";")
-        .map((address) => address.trim())
-        .filter(Boolean);
-      for (const address of addresses) {
-        if (!/^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/.test(address))
+      for (const token of addresses) {
+        const address = token.value;
+        if (token.kind !== "email")
           issues.push({
             row: position,
             field,

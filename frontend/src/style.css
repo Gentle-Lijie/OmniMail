@@ -665,13 +665,13 @@ kbd {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 5px 16px;
+  padding: 4px 14px;
   border-bottom: 1px solid var(--border);
-  min-height: 38px;
+  min-height: 34px;
 }
 .compose-field label {
-  width: 48px;
-  min-width: 48px;
+  width: 44px;
+  min-width: 44px;
   font-size: 11px;
   color: var(--muted-foreground);
 }
@@ -686,6 +686,148 @@ kbd {
 .compose-field input:read-only {
   color: var(--primary);
 }
+.field-input {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+}
+.field-input-overlay {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  padding: 0 6px;
+  pointer-events: none;
+  color: var(--foreground);
+  font-size: 12px;
+  line-height: 18px;
+}
+.field-input-text {
+  display: block;
+  width: max-content;
+  min-width: 100%;
+  padding-block: 4px;
+  white-space: pre;
+}
+.field-input mark {
+  padding: 0;
+  border-radius: 3px;
+  background: var(--accent);
+  color: var(--primary);
+  font: inherit;
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--primary) 22%, transparent);
+}
+.field-input .field-input-control {
+  position: relative;
+  line-height: 18px;
+}
+.field-input-highlighted .field-input-control {
+  color: transparent;
+  caret-color: var(--foreground);
+  background: transparent;
+}
+.field-input-highlighted .field-input-control::selection {
+  background: color-mix(in srgb, var(--primary) 25%, transparent);
+}
+.recipient-input {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 1px 4px;
+  border-radius: 6px;
+}
+.recipient-input:focus-within {
+  box-shadow: 0 0 0 1px var(--primary);
+}
+.recipient-token {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--primary) 22%, var(--border));
+  border-radius: 5px;
+  background: var(--accent);
+  color: var(--primary);
+  font-size: 12px;
+  line-height: 18px;
+}
+.recipient-token-invalid {
+  color: var(--color-destructive);
+  border-color: color-mix(in srgb, var(--color-destructive) 35%, var(--border));
+  background: color-mix(
+    in srgb,
+    var(--color-destructive) 9%,
+    var(--background)
+  );
+}
+.recipient-token-placeholder {
+  color: var(--muted-foreground);
+  background: var(--muted);
+  border-style: dashed;
+}
+.recipient-token .recipient-token-value,
+.recipient-token .recipient-token-remove {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 1px 5px;
+}
+.recipient-token-value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+.recipient-token .recipient-token-remove {
+  display: flex;
+  flex-shrink: 0;
+  padding: 4px;
+}
+.recipient-token button:hover {
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+.recipient-input .recipient-entry {
+  flex: 1 1 180px;
+  width: 100%;
+  min-width: 0;
+  height: 22px;
+  min-height: 22px;
+  field-sizing: content;
+  resize: none;
+  border: 0;
+  box-shadow: none;
+  outline: none;
+  padding: 2px 0;
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+  font-size: 12px;
+  line-height: 18px;
+}
+.recipient-entry::placeholder {
+  color: var(--muted-foreground);
+}
+.recipient-input:has(.recipient-token) .recipient-entry {
+  flex-basis: 0;
+  width: 0;
+  margin-left: -4px;
+}
+.recipient-input:has(.recipient-token) .recipient-entry:focus {
+  flex-basis: 120px;
+  margin-left: 0;
+}
+.recipient-input-readonly .recipient-entry {
+  flex-basis: 0;
+}
+.recipient-input-readonly:has(.recipient-token) .recipient-entry {
+  display: none;
+}
+.recipient-input:has(:disabled) {
+  opacity: 0.6;
+}
 .event-fields {
   padding: 0;
   border-bottom: 1px solid var(--border);
@@ -694,17 +836,17 @@ kbd {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 5px 16px;
+  padding: 4px 14px;
   border-bottom: 1px solid var(--border);
-  min-height: 38px;
+  min-height: 34px;
   margin-top: 0;
 }
 .event-field:last-child {
   border-bottom: 0;
 }
 .event-field > span {
-  width: 96px;
-  min-width: 96px;
+  width: 84px;
+  min-width: 84px;
   font-size: 11px;
   color: var(--muted-foreground);
   font-weight: 500;
@@ -757,6 +899,13 @@ kbd {
   font-size: 10px;
   color: var(--muted-foreground);
   margin-right: 3px;
+}
+.field-insert .field-target-select {
+  width: auto;
+  min-width: 84px;
+  height: 26px;
+  padding: 2px 8px;
+  font-size: 11px;
 }
 .field-insert button {
   font:
@@ -1335,7 +1484,7 @@ kbd {
     max-width: 100%;
   }
   .compose-field {
-    padding: 9px 10px;
+    padding: 5px 10px;
     gap: 3px;
   }
   .compose-field label {
@@ -1344,6 +1493,9 @@ kbd {
     font-size: 10px;
   }
   .compose-field input {
+    font-size: 11px;
+  }
+  .field-input-overlay {
     font-size: 11px;
   }
   .compose-field button {
@@ -1452,7 +1604,7 @@ kbd {
     padding: 0;
   }
   .event-field {
-    padding: 8px 10px;
+    padding: 5px 10px;
     gap: 6px;
   }
   .event-field > span {

@@ -10,6 +10,7 @@ import { Code, Eye, PenLine, Plus } from "lucide-vue-next";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import AppSelect from "./ui/AppSelect.vue";
 import { escapeHtml, previewDocument } from "@/lib/mailMerge";
 import { useFeedback } from "@/lib/notifications";
 const RichEditor = defineAsyncComponent(() => import("./RichEditor.vue"));
@@ -21,8 +22,14 @@ const props = defineProps<{
   disabled?: boolean;
   previewHtml?: string;
   previewSubject?: string;
+  fieldTarget?: string;
+  fieldTargets?: { value: string; label: string; disabled?: boolean }[];
 }>();
-const emit = defineEmits<{ agent: [] }>();
+const emit = defineEmits<{
+  agent: [];
+  "insert-field": [string];
+  "update:fieldTarget": [string];
+}>();
 const model = defineModel<string>({ required: true });
 const tab = ref("rich");
 const rich = ref<InstanceType<typeof RichEditor>>();
@@ -67,6 +74,11 @@ function syncScroll() {
   }
 }
 async function insert(field: string) {
+  if (props.disabled) return;
+  if (props.fieldTarget && props.fieldTarget !== "html") {
+    emit("insert-field", field);
+    return;
+  }
   if (tab.value === "preview") tab.value = richFailed.value ? "source" : "rich";
   await nextTick();
   if (tab.value === "rich") {
@@ -90,7 +102,10 @@ onErrorCaptured(() => {
 </script>
 <template>
   <div class="html-editor">
-    <Tabs v-model="tab" class="editor-modes"
+    <Tabs
+      v-model="tab"
+      class="editor-modes"
+      @update:model-value="emit('update:fieldTarget', 'html')"
       ><TabsList
         ><TabsTrigger value="rich" :disabled="richFailed"
           ><PenLine :size="14" />TinyMCE</TabsTrigger
@@ -103,8 +118,17 @@ onErrorCaptured(() => {
       }}</span></Tabs
     >
     <div v-if="fields?.length" class="field-insert">
-      <span>{{ t("插入字段", "Insert field") }}</span
-      ><Button
+      <span>{{ t("插入到", "Insert into") }}</span>
+      <AppSelect
+        v-if="fieldTargets?.length"
+        :model-value="fieldTarget || 'html'"
+        :options="fieldTargets"
+        :disabled="disabled"
+        class="field-target-select"
+        :aria-label="t('字段插入目标', 'Field insertion target')"
+        @update:model-value="$event && emit('update:fieldTarget', $event)"
+      />
+      <Button
         v-for="field in fields"
         type="button"
         :key="field"
@@ -125,6 +149,7 @@ onErrorCaptured(() => {
           :dark="dark"
           :fields="fields"
           :disabled="disabled"
+          @focus="emit('update:fieldTarget', 'html')"
           @agent="emit('agent')"
           @ready="richReady = true"
           @failed="
@@ -141,6 +166,7 @@ onErrorCaptured(() => {
         :aria-label="t('HTML 正文', 'HTML body')"
         spellcheck="false"
         :disabled="disabled"
+        @focus="emit('update:fieldTarget', 'html')"
         @click="remember"
         @keyup="remember"
         @select="remember"
