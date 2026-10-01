@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useMessages } from "@/lib/i18n";
 import { computed, nextTick, onScopeDispose, ref, watch } from "vue";
 import {
   Sparkles,
@@ -26,6 +27,8 @@ import { previewDocument } from "@/lib/mailMerge";
 import { api, type Kind, type Payload, type Message } from "@/lib/api";
 import { attachmentIssue, type AgentAttachment } from "@/lib/agent";
 import { notify } from "@/lib/notifications";
+
+const copy = useMessages("agentDialog");
 const props = defineProps<{
   open: boolean;
   blank: boolean;
@@ -36,7 +39,6 @@ const props = defineProps<{
   conversation: Message[];
   attachments: AgentAttachment[];
   proposal?: { payload: Payload; message: string };
-  t: (zh: string, en: string) => string;
 }>();
 const emit = defineEmits<{
   "update:open": [boolean];
@@ -57,25 +59,8 @@ const transcript = ref<HTMLElement>();
 const uploading = ref(false);
 const expanded = ref(true);
 let uploadController: AbortController | undefined;
-const stageLabel = (stage: string) => {
-  const labels: Record<string, [string, string]> = {
-    context: [
-      "整理草稿、对话和附件上下文",
-      "Preparing draft, conversation and attachments",
-    ],
-    model: [
-      "正在调用模型，等待生成",
-      "Calling the model; waiting for generation",
-    ],
-    drafting: ["正在生成起草建议", "Generating the draft suggestion"],
-    validating: [
-      "检查草稿结构与字段映射",
-      "Validating draft structure and field mapping",
-    ],
-  };
-  const label = labels[stage];
-  return label ? props.t(...label) : stage;
-};
+const stageLabel = (stage: string) =>
+  copy.value.stages[stage as keyof typeof copy.value.stages] || stage;
 watch(
   () => [
     props.conversation.length,
@@ -103,19 +88,10 @@ async function upload(selected: File[]) {
   if (!selected.length || uploading.value || props.busy) return;
   const issue = attachmentIssue(props.attachments, selected);
   const issues = {
-    count: props.t("最多上传 5 个附件。", "Upload at most 5 attachments."),
-    size: props.t(
-      "附件必须非空，且每个不超过 5 MB。",
-      "Each attachment must be non-empty and at most 5 MB.",
-    ),
-    type: props.t(
-      "支持文本、PDF、DOCX、Excel 和 PNG/JPEG/WebP 图片。",
-      "Use text, PDF, DOCX, Excel or PNG/JPEG/WebP images.",
-    ),
-    context: props.t(
-      "附件总计最多 10 MB，其中图片总计最多 3 MB。",
-      "Attachments: 10 MB total, including at most 3 MB of images.",
-    ),
+    count: copy.value.uploadAtMost5Attachments,
+    size: copy.value.eachAttachmentMustBeNonEmptyAndAtMost5MB,
+    type: copy.value.useTextPDFDOCXExcelOrPNGJPEGWebPImages,
+    context: copy.value.attachmentLimits,
   };
   if (issue) {
     notify.warning(issues[issue]);
@@ -144,12 +120,7 @@ async function upload(selected: File[]) {
           (attachment.text?.length || 0) >
         200000
       )
-        throw Error(
-          props.t(
-            "附件文本总计不能超过 200,000 字符。",
-            "Attachment text cannot exceed 200,000 characters.",
-          ),
-        );
+        throw Error(copy.value.attachmentTextCannotExceed200000Characters);
       current = [...current, attachment];
       emit("update:attachments", current);
       emit("invalidate");
@@ -203,13 +174,10 @@ function openChanged(open: boolean) {
     >
       <DialogHeader class="shrink-0 gap-y-1 border-b px-5 py-3 pr-12 text-left">
         <DialogTitle class="flex items-center gap-2 text-base"
-          ><Sparkles :size="18" />OmniMail Agent</DialogTitle
+          ><Sparkles :size="18" />{{ copy.omniMailAgent }}</DialogTitle
         >
         <DialogDescription class="truncate"
-          >{{ title }} ·
-          {{
-            t("只起草，不发送", "Drafting only; never sends")
-          }}</DialogDescription
+          >{{ title }} · {{ copy.draftingOnlyNeverSends }}</DialogDescription
         >
       </DialogHeader>
       <div
@@ -217,7 +185,7 @@ function openChanged(open: boolean) {
         class="agent-transcript min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4"
         aria-live="polite"
         aria-relevant="additions"
-        :aria-label="t('Agent 对话', 'Agent conversation')"
+        :aria-label="copy.agentConversation"
       >
         <div
           v-if="!conversation.length"
@@ -229,19 +197,10 @@ function openChanged(open: boolean) {
             <Sparkles :size="20" />
           </div>
           <h2 class="text-lg font-semibold">
-            {{
-              blank
-                ? t("从一个想法开始", "Start with an idea")
-                : t("一起完善这份草稿", "Let's refine this draft")
-            }}
+            {{ blank ? copy.startWithAnIdea : copy.letSRefineThisDraft }}
           </h2>
           <p class="text-sm leading-6 text-muted-foreground">
-            {{
-              t(
-                "告诉我目的、背景和语气，也可以上传参考资料。无需模板，我会准备主题与正文供你审核。",
-                "Describe your goal, context and tone, or attach reference files. No template needed; review the subject and body before applying.",
-              )
-            }}
+            {{ copy.conversationHint }}
           </p>
         </div>
         <article
@@ -258,7 +217,7 @@ function openChanged(open: boolean) {
             class="mb-1 flex items-center gap-2 text-xs font-medium text-muted-foreground"
           >
             <Sparkles v-if="entry.role !== 'user'" :size="14" />{{
-              entry.role === "user" ? t("你", "You") : "OmniMail Agent"
+              entry.role === "user" ? copy.you : copy.omniMailAgent
             }}
           </div>
           <div
@@ -296,12 +255,12 @@ function openChanged(open: boolean) {
                 :size="14"
               /><Square v-else :size="14" />{{
                 entry.status === "pending"
-                  ? t("Thinking · 正在处理", "Thinking · Working")
+                  ? copy.thinkingWorking
                   : entry.status === "cancelled"
-                    ? t("已停止", "Stopped")
+                    ? copy.stopped
                     : entry.status === "error"
-                      ? t("处理未完成", "Processing incomplete")
-                      : t("处理过程", "Processing steps")
+                      ? copy.processingIncomplete
+                      : copy.processingSteps
               }}<ChevronDown :size="13" class="ml-auto" />
             </summary>
             <ol class="mt-3 space-y-2 text-muted-foreground">
@@ -317,7 +276,7 @@ function openChanged(open: boolean) {
             </ol>
             <div v-if="entry.thinking" class="mt-3 border-t pt-3">
               <p class="mb-2 font-medium">
-                {{ t("模型返回的思考摘要", "Model-provided thinking") }}
+                {{ copy.modelProvidedThinking }}
               </p>
               <p class="whitespace-pre-wrap break-words leading-5">
                 {{ entry.thinking }}
@@ -327,12 +286,7 @@ function openChanged(open: boolean) {
               v-else-if="entry.status !== 'pending'"
               class="mt-3 text-muted-foreground"
             >
-              {{
-                t(
-                  "该服务商未返回思考摘要；以上为真实处理阶段。",
-                  "This provider returned no thinking summary; the stages above reflect actual processing.",
-                )
-              }}
+              {{ copy.missingThinkingHint }}
             </p>
           </details>
           <p
@@ -349,7 +303,7 @@ function openChanged(open: boolean) {
         >
           <div class="flex items-center justify-between gap-3">
             <h2 class="text-sm font-semibold">
-              {{ t("草稿建议 · 尚未应用", "Draft suggestion · Not applied") }}
+              {{ copy.draftSuggestionNotApplied }}
             </h2>
             <Button
               type="button"
@@ -357,17 +311,11 @@ function openChanged(open: boolean) {
               size="xs"
               :aria-expanded="expanded"
               @click="expanded = !expanded"
-              >{{
-                expanded
-                  ? t("收起预览", "Hide preview")
-                  : t("展开预览", "Show preview")
-              }}</Button
+              >{{ expanded ? copy.hidePreview : copy.showPreview }}</Button
             >
           </div>
           <p class="break-words text-sm">
-            <span class="text-muted-foreground"
-              >{{ t("主题", "Subject") }}:</span
-            >
+            <span class="text-muted-foreground">{{ copy.subject }}:</span>
             {{ proposal.payload.subject }}
           </p>
           <iframe
@@ -375,14 +323,14 @@ function openChanged(open: boolean) {
             class="agent-draft-frame w-full rounded-md border bg-white"
             sandbox=""
             referrerpolicy="no-referrer"
-            :title="t('Agent 起草预览', 'Agent draft preview')"
+            :title="copy.agentDraftPreview"
             :srcdoc="previewDocument(proposal.payload.html)"
           />
           <Button
             type="button"
             :disabled="busy || uploading"
             @click="emit('apply')"
-            >{{ t("应用主题与正文", "Apply subject & body") }}</Button
+            >{{ copy.applySubjectBody }}</Button
           >
         </section>
       </div>
@@ -411,9 +359,7 @@ function openChanged(open: boolean) {
                 variant="ghost"
                 size="icon-sm"
                 :disabled="busy || uploading"
-                :aria-label="
-                  t('移除附件 ', 'Remove attachment ') + attachment.name
-                "
+                :aria-label="copy.removeAttachment + attachment.name"
                 @click="remove(index)"
                 ><X :size="13"
               /></Button>
@@ -425,13 +371,8 @@ function openChanged(open: boolean) {
             :disabled="busy"
             maxlength="10000"
             rows="3"
-            :aria-label="t('Agent 指令', 'Agent instruction')"
-            :placeholder="
-              t(
-                '描述你的想法，或继续提出修改要求…',
-                'Describe your idea, or ask for further changes…',
-              )
-            "
+            :aria-label="copy.agentInstruction"
+            :placeholder="copy.describeYourIdeaOrAskForFurtherChanges"
             @keydown="keydown"
           />
           <input
@@ -441,7 +382,7 @@ function openChanged(open: boolean) {
             multiple
             accept=".txt,.md,.csv,.tsv,.json,.html,.htm,.xml,.log,.pdf,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.webp"
             :disabled="busy || uploading"
-            :aria-label="t('Agent 参考附件', 'Agent reference attachments')"
+            :aria-label="copy.agentReferenceAttachments"
             @change="pick"
           />
           <div class="agent-composer-toolbar">
@@ -452,30 +393,18 @@ function openChanged(open: boolean) {
                 size="sm"
                 class="agent-composer-attach"
                 :disabled="busy || uploading"
-                :title="
-                  t(
-                    '支持文本、PDF、DOCX、Excel 和图片；最多 5 个文件，每个 5 MB，总计 10 MB，图片合计 3 MB。',
-                    'Text, PDF, DOCX, Excel and images; up to 5 files, 5 MB each, 10 MB total, including 3 MB of images.',
-                  )
-                "
+                :title="copy.attachmentHelp"
                 @click="files?.click()"
                 ><LoaderCircle
                   v-if="uploading"
                   :size="15"
                   class="animate-spin"
                 /><Paperclip v-else :size="15" />{{
-                  uploading
-                    ? t("读取附件…", "Reading files…")
-                    : t("上传文件", "Attach files")
+                  uploading ? copy.readingFiles : copy.attachFiles
                 }}</Button
               ><span
                 class="agent-composer-shortcut text-xs text-muted-foreground"
-                >{{
-                  t(
-                    "Enter 发送 · Shift+Enter 换行",
-                    "Enter to send · Shift+Enter for newline",
-                  )
-                }}</span
+                >{{ copy.enterToSendShiftEnterForNewline }}</span
               >
             </div>
             <Button
@@ -484,10 +413,10 @@ function openChanged(open: boolean) {
               variant="outline"
               size="sm"
               class="agent-composer-send"
-              :aria-label="t('停止生成', 'Stop generation')"
+              :aria-label="copy.stopGeneration"
               @click="emit('cancel')"
               ><Square :size="14" /><span class="agent-composer-send-label">{{
-                t("停止生成", "Stop generation")
+                copy.stopGeneration
               }}</span></Button
             ><Button
               v-else
@@ -496,20 +425,14 @@ function openChanged(open: boolean) {
               class="agent-composer-send"
               :disabled="uploading || !input.trim()"
               :aria-label="
-                t(
-                  conversation.length ? '发送修改要求' : '生成起草建议',
-                  conversation.length
-                    ? 'Send follow-up'
-                    : 'Generate draft suggestion',
-                )
+                conversation.length
+                  ? copy.sendFollowUp
+                  : copy.generateDraftSuggestion
               "
               ><ArrowUp :size="15" /><span class="agent-composer-send-label">{{
-                t(
-                  conversation.length ? "发送修改要求" : "生成起草建议",
-                  conversation.length
-                    ? "Send follow-up"
-                    : "Generate draft suggestion",
-                )
+                conversation.length
+                  ? copy.sendFollowUp
+                  : copy.generateDraftSuggestion
               }}</span></Button
             >
           </div>
@@ -519,10 +442,7 @@ function openChanged(open: boolean) {
         >
           <p class="flex min-w-0 items-start gap-1.5 leading-4">
             <ShieldCheck :size="12" class="mt-0.5" /><span>{{
-              t(
-                "对话、正文和附件会交给已配置的 AI。应用仅更新主题与正文，不发送邮件。",
-                "Conversation, draft and attachments go to your configured AI. Applying only updates subject and body; no mail is sent.",
-              )
+              copy.aiPrivacyHint
             }}</span>
           </p>
           <Button
@@ -531,7 +451,7 @@ function openChanged(open: boolean) {
             size="xs"
             :disabled="busy"
             @click="emit('settings')"
-            >{{ t("AI 配置", "AI settings") }}</Button
+            >{{ copy.aISettings }}</Button
           >
         </div>
       </div>

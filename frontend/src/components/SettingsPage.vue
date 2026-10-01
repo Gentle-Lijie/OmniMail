@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useMessages } from "@/lib/i18n";
 import { ref, onMounted } from "vue";
 import { startRegistration } from "@simplewebauthn/browser";
 import AppSelect from "@/components/ui/AppSelect.vue";
@@ -17,8 +18,9 @@ import {
 import AIProviderSettings from "@/components/AIProviderSettings.vue";
 import { api, idPath, type Settings, type Key } from "@/lib/api";
 import { useFeedback } from "@/lib/notifications";
+
+const copy = useMessages("settingsPage");
 const props = defineProps<{
-  t: (zh: string, en: string) => string;
   language: string;
 }>();
 const emit = defineEmits<{ language: [string] }>();
@@ -37,12 +39,12 @@ useFeedback({
   success,
   pending: () =>
     loading.value
-      ? props.t("正在加载设置…", "Loading settings…")
+      ? copy.value.loadingSettings
       : busy.value
-        ? props.t("正在更新设置…", "Updating settings…")
+        ? copy.value.updatingSettings
         : "",
   errorAction: () => ({
-    label: props.t("重试", "Retry"),
+    label: copy.value.retry,
     run: () => run(load),
     disabled: () => busy.value,
   }),
@@ -90,7 +92,7 @@ async function save() {
     mailUrl.value = "";
     eventUrl.value = "";
     await load();
-    success.value = props.t("设置已保存", "Settings saved");
+    success.value = copy.value.settingsSaved;
   });
 }
 const deleting = ref<{ path: string; name: string }>();
@@ -100,7 +102,7 @@ async function remove() {
     await api(deleting.value.path, "DELETE");
     deleting.value = undefined;
     await load();
-    success.value = props.t("已删除", "Deleted");
+    success.value = copy.value.deleted;
   });
 }
 async function addPasskey() {
@@ -113,7 +115,7 @@ async function addPasskey() {
     await api("/auth/register/verify", "POST", { response, name });
     newPasskey.value = "";
     await load();
-    success.value = props.t("Passkey 已添加", "Passkey added");
+    success.value = copy.value.passkeyAdded;
   });
 }
 onMounted(() => run(load));
@@ -121,32 +123,27 @@ onMounted(() => run(load));
 <template>
   <section class="page-enter">
     <div class="heading">
-      <h1>{{ t("设置", "Settings") }}</h1>
+      <h1>{{ copy.settings }}</h1>
       <p class="muted">
-        {{
-          t(
-            "管理接口、AI 提供商与访问安全。",
-            "Manage integrations, AI providers and access security.",
-          )
-        }}
+        {{ copy.description }}
       </p>
     </div>
 
     <div class="workspace">
       <div class="stack">
         <Card v-if="settings" class="panel"
-          ><h2>{{ t("常规与接口", "General & integrations") }}</h2>
+          ><h2>{{ copy.generalIntegrations }}</h2>
           <form @submit.prevent="save">
             <label class="field"
-              ><span>{{ t("语言", "Language") }}</span
+              ><span>{{ copy.language }}</span
               ><AppSelect
                 v-model="language"
                 :options="[
-                  { value: 'zh', label: '中文' },
-                  { value: 'en', label: 'English' },
+                  { value: 'zh', label: copy.chineseLanguage },
+                  { value: 'en', label: copy.englishLanguage },
                 ]" /></label
             ><label class="field"
-              ><span>{{ t("速率间隔（毫秒）", "Rate interval (ms)") }}</span
+              ><span>{{ copy.rateIntervalMs }}</span
               ><Input
                 v-model="settings.rateLimitMs"
                 type="number"
@@ -154,91 +151,64 @@ onMounted(() => run(load));
                 required /></label
             ><label class="row mt-4"
               ><AppCheckbox v-model="settings.registrationEnabled" />{{
-                t("允许注册新 Passkey", "Allow new passkey registration")
+                copy.allowNewPasskeyRegistration
               }}</label
             >
             <label class="field"
-              ><span>{{ t("自定义 AI 指令", "Custom AI instructions") }}</span
+              ><span>{{ copy.customAIInstructions }}</span
               ><Textarea
                 v-model="settings.prompt"
                 rows="4"
-                :placeholder="
-                  t(
-                    '补充语气、格式和工作规则；不能授予执行权限。',
-                    'Tone, format and workspace rules; cannot grant execution permission.',
-                  )
-                "
+                :placeholder="copy.customInstructionsHint"
             /></label>
             <label class="field"
-              ><span>{{
-                t(
-                  "邮件 Webhook URL（留空保留现值）",
-                  "Mail webhook URL (blank keeps existing)",
-                )
-              }}</span
+              ><span>{{ copy.mailWebhookURLBlankKeepsExisting }}</span
               ><Input
                 v-model="mailUrl"
                 type="url"
                 autocomplete="off"
               /><small>{{
-                settings.mailConfigured
-                  ? t("已配置", "Configured")
-                  : t("未配置", "Not configured")
+                settings.mailConfigured ? copy.configured : copy.notConfigured
               }}</small></label
             ><label class="field"
-              ><span>{{
-                t(
-                  "日程 Webhook URL（留空保留现值）",
-                  "Event webhook URL (blank keeps existing)",
-                )
-              }}</span
+              ><span>{{ copy.eventWebhookURLBlankKeepsExisting }}</span
               ><Input
                 v-model="eventUrl"
                 type="url"
                 autocomplete="off"
               /><small>{{
-                settings.eventConfigured
-                  ? t("已配置", "Configured")
-                  : t("未配置", "Not configured")
+                settings.eventConfigured ? copy.configured : copy.notConfigured
               }}</small></label
             >
             <p class="muted text-xs">
-              {{
-                t(
-                  "不在此处测试邮件或日程。请到工作台手动填写收件人并走完整确认流程。",
-                  "No mail/calendar tests here. Enter recipients in Workspace and complete the confirmation flow.",
-                )
-              }}
+              {{ copy.interfaceTestingHint }}
             </p>
             <div class="actions">
-              <Button :disabled="busy">{{
-                t("保存设置", "Save settings")
-              }}</Button>
+              <Button :disabled="busy">{{ copy.saveSettings }}</Button>
             </div>
           </form></Card
         ><Card class="panel"
           ><AIProviderSettings
             :providers="settings?.providers || []"
             :default-provider-id="settings?.defaultProviderId || ''"
-            :t="t"
             @updated="run(load)"
         /></Card>
       </div>
       <Card class="panel self-start"
-        ><h2>{{ t("Passkey 安全", "Passkey security") }}</h2>
+        ><h2>{{ copy.passkeySecurity }}</h2>
         <form @submit.prevent="addPasskey">
           <label class="field"
-            ><span>{{ t("新 Passkey 名称", "New passkey name") }}</span
+            ><span>{{ copy.newPasskeyName }}</span
             ><Input
               v-model="newPasskey"
               required
               autocomplete="username" /></label
           ><Button class="mt-4" :disabled="busy || !newPasskey.trim()">{{
-            t("添加 Passkey", "Add passkey")
+            copy.addPasskey
           }}</Button>
         </form>
         <div v-if="!passkeys.length && !loading" class="empty">
-          {{ t("暂无 Passkey", "No passkeys") }}
+          {{ copy.noPasskeys }}
         </div>
         <div v-for="p in passkeys" :key="p.id" class="record row between">
           <div>
@@ -250,37 +220,30 @@ onMounted(() => run(load));
             @click="
               deleting = { path: '/passkeys/' + idPath(p.id), name: p.name }
             "
-            >{{ t("删除", "Delete") }}</Button
+            >{{ copy.delete }}</Button
           >
         </div>
         <p class="muted text-xs">
-          {{
-            t(
-              "删除最后一个 Passkey 可能导致无法登录，服务器会校验操作。",
-              "Deleting your last passkey may lock you out; server validation applies.",
-            )
-          }}
+          {{ copy.passkeyDeletionWarning }}
         </p></Card
       >
     </div>
     <Dialog :open="!!deleting" @update:open="!$event && (deleting = undefined)"
       ><DialogContent
         ><DialogHeader
-          ><DialogTitle>{{ t("确认删除", "Confirm deletion") }}</DialogTitle
+          ><DialogTitle>{{ copy.confirmDeletion }}</DialogTitle
           ><DialogDescription
             >{{ deleting?.name }} ·
-            {{
-              t("此操作不可撤销。", "This cannot be undone.")
-            }}</DialogDescription
+            {{ copy.thisCannotBeUndone }}</DialogDescription
           ></DialogHeader
         >
 
         <div class="actions">
           <Button variant="outline" @click="deleting = undefined">{{
-            t("返回", "Back")
+            copy.back
           }}</Button
           ><Button variant="destructive" :disabled="busy" @click="remove">{{
-            t("确认删除", "Confirm delete")
+            copy.confirmDelete
           }}</Button>
         </div></DialogContent
       ></Dialog

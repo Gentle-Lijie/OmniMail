@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useMessages, message } from "@/lib/i18n";
 import AppSelect from "@/components/ui/AppSelect.vue";
 import AppCheckbox from "@/components/ui/AppCheckbox.vue";
 import { computed, onUnmounted, ref, watch } from "vue";
@@ -32,10 +33,15 @@ import {
 import { api, ApiError, idPath, type Provider } from "@/lib/api";
 import { useFeedback, notify } from "@/lib/notifications";
 
+const copy = useMessages("aiProviderSettings");
+const editing = ref<DraftConfig>();
+
+const deleteServiceLabel = (name: string) =>
+  message("aiProviderSettings.deleteService", { name });
+
 const props = defineProps<{
   providers: Provider[];
   defaultProviderId: string;
-  t: (zh: string, en: string) => string;
 }>();
 const emit = defineEmits<{ updated: [] }>();
 type DraftConfig = Partial<Provider> & { apiKey?: string };
@@ -46,7 +52,7 @@ type Verification = {
   model: string;
   preview: { subject: string; html: string };
 };
-const editing = ref<DraftConfig>();
+
 const activity = ref<
   "discover" | "verify" | "save" | "default" | "delete" | ""
 >("");
@@ -73,36 +79,23 @@ useFeedback({
   success,
   pending: () =>
     activity.value
-      ? props.t(
-          activity.value === "discover"
-            ? "正在自动获取模型…"
-            : activity.value === "verify"
-              ? "正在验证真实起草能力…"
-              : "正在更新 AI 配置…",
-          activity.value === "discover"
-            ? "Discovering models…"
-            : activity.value === "verify"
-              ? "Verifying drafting…"
-              : "Updating AI configuration…",
-        )
+      ? activity.value === "discover"
+        ? copy.value.discoveringModels
+        : activity.value === "verify"
+          ? copy.value.verifyingDrafting
+          : copy.value.updatingAiConfiguration
       : "",
 });
 useFeedback({
   error: modelError,
   errorAction: () => ({
-    label: props.t("重新获取模型", "Retry model discovery"),
+    label: copy.value.retryModelDiscovery,
     run: discover,
     disabled: () => busy.value || !canDiscover(),
   }),
 });
 watch(verification, (value) => {
-  if (value)
-    notify.success(
-      props.t(
-        "起草能力验证通过；没有发送邮件。",
-        "Drafting verified. No email sent.",
-      ),
-    );
+  if (value) notify.success(copy.value.draftingVerifiedNoEmailSent);
 });
 const filteredModels = computed(() =>
   models.value.filter((model) =>
@@ -116,98 +109,46 @@ const selectedOutsideList = computed(
     editing.value?.model &&
     !models.value.some((model) => model.id === editing.value?.model),
 );
-const presets = [
+const presets = computed(() => [
   {
     id: "openai",
-    label: "OpenAI",
+    label: copy.value.openai,
     protocol: "openai-responses" as const,
     baseUrl: "https://api.openai.com/v1",
   },
   {
     id: "anthropic",
-    label: "Anthropic",
+    label: copy.value.anthropic,
     protocol: "anthropic" as const,
     baseUrl: "https://api.anthropic.com/v1",
   },
   {
     id: "glm",
-    label: "GLM / 智谱",
+    label: copy.value.glm,
     protocol: "openai-chat" as const,
     baseUrl: "https://open.bigmodel.cn/api/paas/v4",
   },
   {
     id: "custom",
-    label: "自定义 / Custom",
+    label: copy.value.custom,
     protocol: "openai-chat" as const,
     baseUrl: "",
   },
-];
+]);
 const preset = ref("custom");
 const protocolName = (protocol: Provider["protocol"]) =>
   protocol === "anthropic"
-    ? "Anthropic Messages"
+    ? copy.value.anthropicMessages
     : protocol === "openai-chat"
-      ? "OpenAI Chat Completions"
-      : "OpenAI Responses";
+      ? copy.value.openaiChatCompletions
+      : copy.value.openaiResponses;
 function friendlyError(cause: unknown) {
   if (!(cause instanceof ApiError))
     return cause instanceof Error ? cause.message : String(cause);
-  const descriptions: Record<string, [string, string]> = {
-    key_required: [
-      "请填写 API Key；更换服务域名时需要重新输入密钥。",
-      "Enter an API key; changing hosts requires a new key.",
-    ],
-    provider_auth: [
-      "认证失败，请检查密钥、API 类型与账号权限。",
-      "Authentication failed. Check the key, API type and account permissions.",
-    ],
-    endpoint_unsupported: [
-      "这个服务未提供该 API。请检查 API 类型及地址；兼容服务不一定实现模型列表。",
-      "This API is not exposed by the service. Check API type and URL; compatible services may not offer model listing.",
-    ],
-    models_unsupported: [
-      "该接口没有返回标准模型目录。可使用已保存模型，或在高级配置中补充模型。",
-      "No standard model directory was returned. Use the saved model or the advanced override.",
-    ],
-    models_empty: [
-      "此密钥没有返回可用模型，请检查账号权限。",
-      "No models returned for this key. Check account access.",
-    ],
-    provider_timeout: [
-      "上游响应超时，请稍后重试。",
-      "The provider timed out. Try again later.",
-    ],
-    provider_rate_limit: [
-      "上游限流，请稍后重试或检查账户额度。",
-      "Provider rate limit reached. Check quota or try later.",
-    ],
-    invalid_base_url: [
-      "请输入 API 基础地址，不要带查询参数。",
-      "Enter an API base URL without query parameters.",
-    ],
-    model_required: [
-      "请先从自动获取的模型中选择一个。",
-      "Select a discovered model first.",
-    ],
-    output_invalid: [
-      "模型没有返回可用的结构化草稿，可在高级配置中调整输出兼容模式。",
-      "The model did not return a valid structured draft. Adjust the advanced output compatibility mode.",
-    ],
-    output_incomplete: [
-      "模型输出被截断，验证不通过；不会应用不完整草稿。",
-      "Model output was truncated. Verification failed; incomplete drafts are not applied.",
-    ],
-    output_refused: [
-      "模型拒绝了起草请求，验证未通过。",
-      "The model refused the drafting request.",
-    ],
-    draft_check_failed: [
-      "模型未遵守起草指令，不能仅凭连接成功判断可用。",
-      "The model did not follow drafting instructions; connectivity alone is insufficient.",
-    ],
-  };
-  const description = cause.code ? descriptions[cause.code] : undefined;
-  return description ? props.t(...description) : cause.message;
+  return cause.code
+    ? copy.value.errors[cause.code as keyof typeof copy.value.errors] ||
+        cause.message
+    : cause.message;
 }
 function open(provider?: Provider) {
   clearTimeout(discoveryTimer);
@@ -245,7 +186,7 @@ function open(provider?: Provider) {
 function choosePreset(value: string) {
   if (!editing.value) return;
   preset.value = value;
-  const choice = presets.find((item) => item.id === value)!;
+  const choice = presets.value.find((item) => item.id === value)!;
   editing.value.protocol = choice.protocol;
   editing.value.baseUrl = choice.baseUrl;
   editing.value.model = "";
@@ -253,19 +194,14 @@ function choosePreset(value: string) {
     editing.value.name = value === "custom" ? "" : choice.label;
 }
 function config() {
-  if (!editing.value) throw Error("No provider selected");
+  if (!editing.value) throw Error(copy.value.noProviderSelected);
   let headers: Record<string, string> | undefined;
   if (replaceHeaders.value) {
     let parsed: unknown;
     try {
       parsed = JSON.parse(customHeaders.value || "{}");
     } catch {
-      throw Error(
-        props.t(
-          "自定义请求头必须是 JSON 对象。",
-          "Custom headers must be a JSON object.",
-        ),
-      );
+      throw Error(copy.value.customHeadersMustBeAJSONObject);
     }
     if (
       !parsed ||
@@ -273,12 +209,7 @@ function config() {
       typeof parsed !== "object" ||
       Object.values(parsed).some((value) => typeof value !== "string")
     )
-      throw Error(
-        props.t(
-          "请求头必须为键值均是字符串的对象。",
-          "Header names and values must be strings.",
-        ),
-      );
+      throw Error(copy.value.headerNamesAndValuesMustBeStrings);
     headers = parsed as Record<string, string>;
   }
   const provider = editing.value;
@@ -287,7 +218,7 @@ function config() {
     try {
       name = new URL(provider.baseUrl || "").hostname;
     } catch {
-      name = "Custom AI";
+      name = copy.value.customAi;
     }
   }
   return {
@@ -392,10 +323,7 @@ async function verify() {
 async function saveProvider() {
   if (busy.value || !editing.value) return;
   if (!editing.value.model?.trim()) {
-    error.value = props.t(
-      "选择模型后再保存。",
-      "Choose a model before saving.",
-    );
+    error.value = copy.value.chooseAModelBeforeSaving;
     return;
   }
   clearTimeout(discoveryTimer);
@@ -410,14 +338,9 @@ async function saveProvider() {
     );
     editing.value = undefined;
     revision++;
-    success.value = props.t(
-      makeDefault.value
-        ? "AI 配置已保存，并设为默认起草服务。"
-        : "AI 配置已保存。",
-      makeDefault.value
-        ? "Saved and selected as the default drafting service."
-        : "AI configuration saved.",
-    );
+    success.value = makeDefault.value
+      ? copy.value.savedAndSelectedAsTheDefaultDraftingService
+      : copy.value.aIConfigurationSaved;
     emit("updated");
   } catch (cause) {
     error.value = friendlyError(cause);
@@ -432,10 +355,7 @@ async function selectDefault(provider: Provider) {
   try {
     await api("/settings", "PUT", { defaultProviderId: provider.id });
     emit("updated");
-    success.value = props.t(
-      "默认起草服务已切换。",
-      "Default drafting service updated.",
-    );
+    success.value = copy.value.defaultDraftingServiceUpdated;
   } catch (cause) {
     error.value = friendlyError(cause);
   } finally {
@@ -472,38 +392,27 @@ onUnmounted(() => {
   <section class="ai-module" aria-labelledby="ai-module-title">
     <header class="ai-module-heading">
       <div>
-        <span class="ai-overline">AI CONNECTIONS</span>
+        <span class="ai-overline">{{ copy.aiConnections }}</span>
         <h2 id="ai-module-title">
-          {{ t("AI 起草服务", "AI drafting services") }}
+          {{ copy.aiDraftingServices }}
         </h2>
         <p>
-          {{
-            t(
-              "自动发现模型，验证真正的起草能力。",
-              "Discover models automatically. Verify actual drafting capability.",
-            )
-          }}
+          {{ copy.description }}
         </p>
       </div>
       <Button variant="outline" :disabled="busy" @click="open()"
-        ><Plus :size="16" />{{ t("添加服务", "Add service") }}</Button
+        ><Plus :size="16" />{{ copy.addService }}</Button
       >
     </header>
 
     <div v-if="!providers.length" class="ai-empty">
       <Server :size="28" />
-      <h3>{{ t("连接你自己的 AI", "Connect your own AI") }}</h3>
+      <h3>{{ copy.connectYourOwnAI }}</h3>
       <p>
-        {{
-          t(
-            "选择 API 类型，填写地址和密钥。模型目录会自动加载，无需先填模型 ID。",
-            "Choose an API type, enter the endpoint and key. Models load automatically; no model ID required first.",
-          )
-        }}
+        {{ copy.setupHint }}
       </p>
       <Button @click="open()"
-        >{{ t("配置第一个服务", "Set up the first service")
-        }}<ChevronRight :size="16"
+        >{{ copy.setUpTheFirstService }}<ChevronRight :size="16"
       /></Button>
     </div>
     <div v-for="provider in providers" :key="provider.id" class="ai-provider">
@@ -512,12 +421,12 @@ onUnmounted(() => {
         <div class="ai-provider-title">
           <strong>{{ provider.name }}</strong
           ><span v-if="provider.id === defaultProviderId" class="ai-tag">{{
-            t("默认起草", "Default")
+            copy.default
           }}</span>
         </div>
         <p>
-          {{ provider.model || t("未选择模型", "No model selected")
-          }}<span> · </span>{{ protocolName(provider.protocol) }}
+          {{ provider.model || copy.noModelSelected }}<span> · </span
+          >{{ protocolName(provider.protocol) }}
         </p>
         <small>{{ provider.baseUrl }}</small>
       </div>
@@ -527,13 +436,13 @@ onUnmounted(() => {
           variant="ghost"
           :disabled="busy || !provider.model"
           @click="selectDefault(provider)"
-          >{{ t("设为默认", "Use as default") }}</Button
+          >{{ copy.useAsDefault }}</Button
         ><Button variant="outline" :disabled="busy" @click="open(provider)">{{
-          t("管理", "Manage")
+          copy.manage
         }}</Button
         ><Button
           variant="ghost"
-          :aria-label="t('删除 ' + provider.name, 'Delete ' + provider.name)"
+          :aria-label="deleteServiceLabel(provider.name)"
           :disabled="busy"
           @click="deleting = provider"
           ><Trash2 :size="15"
@@ -541,12 +450,7 @@ onUnmounted(() => {
       </div>
     </div>
     <div v-if="providers.length && !defaultProviderId" class="ai-callout">
-      <CircleHelp :size="16" />{{
-        t(
-          "请选择一个默认服务，工作台才知道使用哪个 AI。",
-          "Choose a default service for the workspace.",
-        )
-      }}
+      <CircleHelp :size="16" />{{ copy.chooseADefaultServiceForTheWorkspace }}
     </div>
   </section>
   <Dialog :open="!!editing" @update:open="close">
@@ -555,16 +459,10 @@ onUnmounted(() => {
     >
       <DialogHeader
         ><DialogTitle>{{
-          t(
-            editing?.id ? "管理 AI 服务" : "连接 AI 服务",
-            editing?.id ? "Manage AI service" : "Connect an AI service",
-          )
+          editing?.id ? copy.manageAIService : copy.connectAnAIService
         }}</DialogTitle
         ><DialogDescription>{{
-          t(
-            "配置留在服务器。自动获取模型只读取目录；起草验证由你主动触发，可能产生少量费用。",
-            "Configuration stays on the server. Model discovery only reads the catalog; drafting verification is explicit and may incur a small charge.",
-          )
+          copy.configurationPrivacyHint
         }}</DialogDescription></DialogHeader
       >
       <form v-if="editing" @submit.prevent="verify">
@@ -580,64 +478,55 @@ onUnmounted(() => {
               type="button"
               :class="{ selected: preset === choice.id }"
               @click="choosePreset(choice.id)"
-              >{{
-                choice.id === "custom" ? t("自定义", "Custom") : choice.label
-              }}</Button
+              >{{ choice.id === "custom" ? copy.custom : choice.label }}</Button
             >
           </div>
           <section class="ai-step">
             <div class="ai-step-title">
               <span>1</span>
-              <h3>{{ t("连接服务", "Connect") }}</h3>
-              <small>{{
-                t("填好后自动读取模型", "Models load automatically")
-              }}</small>
+              <h3>{{ copy.connect }}</h3>
+              <small>{{ copy.modelsLoadAutomatically }}</small>
             </div>
             <div class="ai-grid">
               <label class="field"
-                ><span>{{ t("显示名称", "Display name") }}</span
+                ><span>{{ copy.displayName }}</span
                 ><Input
                   v-model="editing.name"
-                  :placeholder="t('例如：团队 GLM', 'e.g. Team GLM')"
+                  :placeholder="copy.eGTeamGLM"
                   autocomplete="off" /></label
               ><label class="field"
-                ><span>{{ t("API 类型", "API type") }}</span
+                ><span>{{ copy.aPIType }}</span
                 ><AppSelect
                   v-model="editing.protocol"
                   :options="[
-                    { value: 'openai-chat', label: 'OpenAI Chat Completions' },
-                    { value: 'openai-responses', label: 'OpenAI Responses' },
-                    { value: 'anthropic', label: 'Anthropic Messages' },
+                    { value: 'openai-chat', label: copy.openaiChatCompletions },
+                    { value: 'openai-responses', label: copy.openaiResponses },
+                    { value: 'anthropic', label: copy.anthropicMessages },
                   ]"
               /></label>
             </div>
             <label class="field"
-              ><span>{{ t("API 基础地址", "API base URL") }}</span
+              ><span>{{ copy.aPIBaseURL }}</span
               ><Input
                 v-model="editing.baseUrl"
                 type="url"
-                placeholder="https://your-provider.example/v1"
+                :placeholder="copy.httpsYourProviderExampleV1"
                 autocomplete="off"
-              /><small>{{
-                t(
-                  "自动补全协议路径；不需要填写 /models 或推理接口。",
-                  "Protocol paths are appended automatically; do not enter /models or an inference endpoint.",
-                )
-              }}</small></label
+              /><small>{{ copy.baseUrlHint }}</small></label
             >
             <label class="field"
               ><span
-                >API Key
+                >{{ copy.apiKey }}
                 <small v-if="editing.hasApiKey">{{
-                  t("已保存 · 留空保留", "Saved · leave blank to keep")
+                  copy.savedLeaveBlankToKeep
                 }}</small></span
               ><Input
                 v-model="editing.apiKey"
                 type="password"
                 :placeholder="
                   editing.hasApiKey
-                    ? t('使用服务器上已保存的密钥', 'Use the saved server key')
-                    : t('粘贴你的 API Key', 'Paste your API key')
+                    ? copy.useTheSavedServerKey
+                    : copy.pasteYourAPIKey
                 "
                 autocomplete="new-password"
                 spellcheck="false"
@@ -646,38 +535,30 @@ onUnmounted(() => {
           <section class="ai-step">
             <div class="ai-step-title">
               <span>2</span>
-              <h3>{{ t("选择模型", "Choose a model") }}</h3>
+              <h3>{{ copy.chooseAModel }}</h3>
               <Button
                 variant="ghost"
                 type="button"
                 class="ai-refresh"
                 :disabled="!canDiscover()"
                 @click="discover"
-                ><RefreshCw :size="13" />{{ t("刷新目录", "Refresh") }}</Button
+                ><RefreshCw :size="13" />{{ copy.refresh }}</Button
               >
             </div>
 
             <div v-if="discovery === 'idle'" class="ai-discovery-state">
-              <CircleHelp :size="17" />{{
-                t(
-                  "填写有效地址与密钥后，模型会自动出现在这里。",
-                  "Models appear automatically after entering a valid URL and key.",
-                )
-              }}
+              <CircleHelp :size="17" />{{ copy.modelDiscoveryHint }}
             </div>
 
             <label v-if="models.length > 12" class="field"
-              ><span>{{ t("筛选模型", "Filter models") }}</span
-              ><Input
-                v-model="modelSearch"
-                :placeholder="t('搜索模型名称', 'Search models')"
+              ><span>{{ copy.filterModels }}</span
+              ><Input v-model="modelSearch" :placeholder="copy.searchModels"
             /></label>
             <label v-if="models.length || editing.model" class="field"
               ><span
-                >{{ t("起草模型", "Drafting model")
+                >{{ copy.draftingModel
                 }}<small v-if="models.length">
-                  · {{ models.length }}
-                  {{ t("个可见模型", "visible models") }}</small
+                  · {{ models.length }} {{ copy.visibleModels }}</small
                 ></span
               ><AppSelect
                 v-model="editing.model"
@@ -687,9 +568,7 @@ onUnmounted(() => {
                         {
                           value: editing.model!,
                           label:
-                            editing.model! +
-                            ' · ' +
-                            t('当前配置', 'Current configuration'),
+                            editing.model! + ' · ' + copy.currentConfiguration,
                         },
                       ]
                     : []),
@@ -699,144 +578,101 @@ onUnmounted(() => {
                   })),
                 ]"
               /><small v-if="hasMore">{{
-                t(
-                  "目录较大，目前只展示部分模型。",
-                  "Only part of the large catalog is shown.",
-                )
+                copy.onlyPartOfTheLargeCatalogIsShown
               }}</small
-              ><small>{{
-                t(
-                  "出现在目录中不代表适用于当前 API；下一步验证实际起草。",
-                  "Catalog visibility does not prove API compatibility. Verify drafting below.",
-                )
-              }}</small></label
+              ><small>{{ copy.modelCompatibilityHint }}</small></label
             >
           </section>
           <CollapsibleRoot v-model:open="advanced" class="ai-advanced">
             <CollapsibleTrigger as-child>
               <Button type="button" variant="ghost" class="ai-advanced-trigger">
                 <ChevronRight :size="15" :class="{ rotated: advanced }" />
-                <Settings2 :size="14" />{{
-                  t("高级兼容配置", "Advanced compatibility")
-                }}<span>{{ t("通常不需要", "Usually unnecessary") }}</span>
+                <Settings2 :size="14" />{{ copy.advancedCompatibility
+                }}<span>{{ copy.usuallyUnnecessary }}</span>
               </Button>
             </CollapsibleTrigger>
             <CollapsibleContent class="ai-advanced-body">
               <label class="field"
-                ><span>{{ t("输出兼容模式", "Output compatibility") }}</span
+                ><span>{{ copy.outputCompatibility }}</span
                 ><AppSelect
                   v-model="editing.outputMode"
                   :options="[
                     {
                       value: 'auto',
-                      label: t(
-                        '自动 · 原生结构化输出',
-                        'Automatic · structured output',
-                      ),
+                      label: copy.automaticStructuredOutput,
                     },
                     {
                       value: 'json',
-                      label: t('JSON 模式 · 兼容网关', 'JSON mode · gateways'),
+                      label: copy.jSONModeGateways,
                     },
                     {
                       value: 'prompt',
-                      label: t('仅提示词 · 旧接口兼容', 'Prompt only · legacy'),
+                      label: copy.promptOnlyLegacy,
                     },
                   ]"
-                /><small>{{
-                  t(
-                    "不支持原生结构化输出时手动切换，再重新验证。不会自动重试付费请求。",
-                    "Switch modes and verify again if structured output is unsupported. Paid requests are never retried automatically.",
-                  )
-                }}</small></label
+                /><small>{{ copy.outputModeHint }}</small></label
               ><label v-if="!models.length" class="field"
                 ><span>{{
-                  t(
-                    "模型 ID 备用输入（仅当上游不提供目录）",
-                    "Fallback model ID (only if no catalog is available)",
-                  )
+                  copy.fallbackModelIDOnlyIfNoCatalogIsAvailable
                 }}</span
-                ><Input v-model="editing.model" placeholder="model-id" /></label
+                ><Input
+                  v-model="editing.model"
+                  :placeholder="copy.modelId" /></label
               ><label class="ai-checkbox"
                 ><AppCheckbox v-model="replaceHeaders" />{{
-                  t("替换自定义请求头", "Replace custom headers")
+                  copy.replaceCustomHeaders
                 }}<small v-if="editing.hasHeaders && !replaceHeaders">{{
-                  t("已保存 · 保持不变", "Saved · unchanged")
+                  copy.savedUnchanged
                 }}</small></label
               ><label v-if="replaceHeaders" class="field"
-                ><span>{{
-                  t(
-                    "自定义 Headers · 空对象将清除旧值",
-                    "Custom headers · {} clears previous values",
-                  )
-                }}</span
+                ><span>{{ copy.customHeadersClearsPreviousValues }}</span
                 ><Textarea
                   v-model="customHeaders"
                   rows="3"
                   spellcheck="false"
-                /><small>{{
-                  t(
-                    "认证头按大小写不敏感方式覆盖默认值。",
-                    "Authentication headers override defaults case-insensitively.",
-                  )
-                }}</small></label
+                /><small>{{ copy.customHeadersHint }}</small></label
               >
             </CollapsibleContent>
           </CollapsibleRoot>
           <section class="ai-step ai-verification">
             <div class="ai-step-title">
               <span>3</span>
-              <h3>{{ t("验证起草能力", "Verify drafting") }}</h3>
+              <h3>{{ copy.verifyDrafting }}</h3>
             </div>
             <p>
-              {{
-                t(
-                  "执行一次不含收件人的微型起草，检查模型是否能生成安全、可编辑的草稿。不是只让它回复 OK。",
-                  "Generate a tiny draft with no recipients to check safe, editable structured output—not just an OK reply.",
-                )
-              }}
+              {{ copy.verificationHint }}
             </p>
             <Button
               type="submit"
               variant="outline"
               :disabled="busy || !editing.model"
-              ><Check :size="15" />{{
-                t("验证当前配置", "Verify current configuration")
-              }}</Button
+              ><Check :size="15" />{{ copy.verifyCurrentConfiguration }}</Button
             >
             <Card v-if="verification" class="ai-verification-result">
               <Check :size="17" />
               <div>
-                <strong>{{ t("验证结果", "Verification result") }}</strong
+                <strong>{{ copy.verificationResult }}</strong
                 ><small
-                  >{{ verification.model }} · {{ verification.latencyMs }} ms ·
-                  {{ t("无发送动作", "Nothing sent") }}</small
+                  >{{ verification.model }} · {{ verification.latencyMs }}
+                  {{ copy.ms }} {{ copy.nothingSent }}</small
                 >
               </div>
             </Card>
           </section>
           <label class="ai-checkbox"
             ><AppCheckbox v-model="makeDefault" />{{
-              t(
-                "保存后用作默认起草服务",
-                "Use as the default drafting service after saving",
-              )
+              copy.useAsTheDefaultDraftingServiceAfterSaving
             }}</label
           >
         </fieldset>
 
         <footer class="ai-dialog-footer">
-          <small>{{
-            t(
-              "未保存的修改也可以发现模型和验证。",
-              "Discovery and verification use your current, unsaved configuration.",
-            )
-          }}</small
+          <small>{{ copy.unsavedConfigHint }}</small
           ><Button
             type="button"
             :disabled="busy || !editing.model"
             @click="saveProvider"
-            >{{ t("保存配置", "Save configuration") }}</Button
+            >{{ copy.saveConfiguration }}</Button
           >
         </footer>
       </form>
@@ -847,15 +683,10 @@ onUnmounted(() => {
     @update:open="!$event && !busy && (deleting = undefined)"
     ><DialogContent
       ><DialogHeader
-        ><DialogTitle>{{ t("删除 AI 服务", "Delete AI service") }}</DialogTitle
+        ><DialogTitle>{{ copy.deleteAIService }}</DialogTitle
         ><DialogDescription
           >{{ deleting?.name }} ·
-          {{
-            t(
-              "删除默认服务后会选择其他已配置模型的服务。",
-              "Another configured service will be selected if the default is deleted.",
-            )
-          }}</DialogDescription
+          {{ copy.deleteServiceWarning }}</DialogDescription
         ></DialogHeader
       >
 
@@ -864,10 +695,8 @@ onUnmounted(() => {
           variant="outline"
           :disabled="busy"
           @click="deleting = undefined"
-          >{{ t("取消", "Cancel") }}</Button
-        ><Button :disabled="busy" @click="remove">{{
-          t("确认删除", "Delete")
-        }}</Button>
+          >{{ copy.cancel }}</Button
+        ><Button :disabled="busy" @click="remove">{{ copy.delete }}</Button>
       </div></DialogContent
     ></Dialog
   >

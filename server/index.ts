@@ -1,3 +1,4 @@
+import { serverMessage } from "./i18n.js";
 import { buildApp } from "./app.js";
 import { existsSync } from "node:fs";
 import { loadEnvFile } from "node:process";
@@ -6,9 +7,11 @@ import { loadEnvFile } from "node:process";
 if (existsSync(".env")) loadEnvFile(".env");
 const origin = process.env.APP_ORIGIN ?? "http://localhost:5173";
 if (process.env.NODE_ENV === "production" && !origin.startsWith("https://"))
-  throw new Error("Production APP_ORIGIN must use HTTPS");
+  throw new Error(serverMessage("index.productionAPPORIGINMustUseHTTPS"));
 if (!process.env.SETUP_TOKEN || process.env.SETUP_TOKEN.length < 24)
-  throw new Error("SETUP_TOKEN must contain at least 24 characters");
+  throw new Error(
+    serverMessage("index.sETUPTOKENMustContainAtLeast24Characters"),
+  );
 const { app, store } = await buildApp({
   secret: process.env.APP_SECRET ?? "",
   setupToken: process.env.SETUP_TOKEN,
@@ -26,7 +29,9 @@ await app.listen({
   port: Number(process.env.PORT ?? 3000),
   host: process.env.HOST ?? "127.0.0.1",
 });
-console.log(`OmniMail listening on port ${process.env.PORT ?? 3000}`);
+console.log(
+  serverMessage("index.listening", { port: process.env.PORT ?? 3000 }),
+);
 for (const signal of ["SIGINT", "SIGTERM"] as const)
   process.on(signal, () => {
     void app.close().then(() => process.exit(0));

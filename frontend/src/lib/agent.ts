@@ -1,3 +1,4 @@
+import { message } from "./i18n";
 export interface AgentAttachment {
   kind: "text" | "image";
   name: string;
@@ -23,7 +24,8 @@ export async function readAgentResponse<Result>(
   response: Response,
   onProgress: (event: AgentProgress) => void,
 ): Promise<Result> {
-  if (!response.body) throw new AgentStreamError("Agent response is empty");
+  if (!response.body)
+    throw new AgentStreamError(message("agent.emptyResponse"));
   const reader = response.body.getReader(),
     decoder = new TextDecoder();
   let buffer = "",
@@ -40,11 +42,11 @@ export async function readAgentResponse<Result>(
     try {
       event = JSON.parse(data);
     } catch {
-      throw new AgentStreamError("Agent returned invalid stream data");
+      throw new AgentStreamError(message("agent.invalidStream"));
     }
     if (event.type === "error")
       throw new AgentStreamError(
-        event.error || "Agent request failed",
+        event.error || message("agent.requestFailed"),
         event.code,
       );
     if (event.type === "result") result = event.result;
@@ -56,7 +58,7 @@ export async function readAgentResponse<Result>(
       if (chunk.done) break;
       size += chunk.value.byteLength;
       if (size > 2000000)
-        throw new AgentStreamError("Agent response exceeds 2 MB");
+        throw new AgentStreamError(message("agent.responseTooLarge"));
       buffer += decoder.decode(chunk.value, { stream: true });
       let separator: RegExpExecArray | null;
       while ((separator = /\r?\n\r?\n/.exec(buffer))) {
@@ -67,9 +69,7 @@ export async function readAgentResponse<Result>(
     buffer += decoder.decode();
     if (buffer.trim()) consume(buffer);
     if (result === undefined)
-      throw new AgentStreamError(
-        "Agent stream ended before a complete draft arrived",
-      );
+      throw new AgentStreamError(message("agent.incompleteStream"));
     return result;
   } finally {
     await reader.cancel().catch(() => {});

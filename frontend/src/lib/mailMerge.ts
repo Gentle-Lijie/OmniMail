@@ -1,3 +1,4 @@
+import { message } from "./i18n";
 import type { Kind, Payload } from "./api";
 import { parseRecipients } from "./recipients";
 export type DataRow = Record<string, unknown>;
@@ -89,7 +90,7 @@ export function mergeIssues(
         issues.push({
           row: position,
           field,
-          message: "字段未映射或值为空 / Missing field or value",
+          message: message("mailMerge.missingField"),
         });
     }
     for (const field of recipients) {
@@ -99,7 +100,7 @@ export function mergeIssues(
         issues.push({
           row: position,
           field,
-          message: "请填写收件人 / Recipient required",
+          message: message("mailMerge.recipientRequired"),
         });
       if (/{{/.test(rendered)) continue;
       for (const token of addresses) {
@@ -108,7 +109,7 @@ export function mergeIssues(
           issues.push({
             row: position,
             field,
-            message: `无效邮箱 / Invalid email: ${address}`,
+            message: message("mailMerge.invalidEmail", { address }),
           });
         if (field === "to") {
           const normalized = address.toLowerCase();
@@ -116,7 +117,7 @@ export function mergeIssues(
             issues.push({
               row: position,
               field,
-              message: `重复收件人 / Duplicate recipient: ${address}`,
+              message: message("mailMerge.duplicateRecipient", { address }),
             });
           seen.add(normalized);
         }
@@ -127,13 +128,13 @@ export function mergeIssues(
       issues.push({
         row: position,
         field: "subject",
-        message: "主题不能为空 / Subject required",
+        message: message("mailMerge.subjectRequired"),
       });
     if (kind === "email" && !payload.html.trim())
       issues.push({
         row: position,
         field: "html",
-        message: "正文不能为空 / Body required",
+        message: message("mailMerge.bodyRequired"),
       });
     if (kind === "event") {
       const start = renderFields(payload.start || "", row, mapping),
@@ -148,7 +149,7 @@ export function mergeIssues(
         issues.push({
           row: position,
           field: "start",
-          message: "请填写有效的日程起止时间 / Invalid event times",
+          message: message("mailMerge.invalidEventTimes"),
         });
     }
   });

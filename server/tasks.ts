@@ -1,3 +1,4 @@
+import { serverMessage, type ServerMessageKey } from "./i18n.js";
 import { z } from "zod";
 import { id, type Store } from "./store.js";
 import { normalizeRecipients, parseRecipients } from "./recipients.js";
@@ -6,7 +7,7 @@ const addresses = z
   .max(10000)
   .refine(
     (s) => parseRecipients(s).every((token) => token.kind === "email"),
-    "Invalid email addresses",
+    () => ({ message: serverMessage("tasks.invalidEmailAddresses") }),
   )
   .transform(normalizeRecipients);
 export const emailSchema = z
@@ -21,13 +22,17 @@ export const emailSchema = z
 const timestamp = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/)
-  .refine((s) => {
-    const d = new Date(s + "+08:00");
-    return (
-      Number.isFinite(d.getTime()) &&
-      new Date(d.getTime() + 8 * 3600000).toISOString().slice(0, s.length) === s
-    );
-  }, "Invalid Beijing timestamp");
+  .refine(
+    (s) => {
+      const d = new Date(s + "+08:00");
+      return (
+        Number.isFinite(d.getTime()) &&
+        new Date(d.getTime() + 8 * 3600000).toISOString().slice(0, s.length) ===
+          s
+      );
+    },
+    () => ({ message: serverMessage("tasks.invalidBeijingTimestamp") }),
+  );
 export const eventSchema = z
   .object({
     subject: z.string().trim().min(1).max(998),
@@ -39,10 +44,13 @@ export const eventSchema = z
     html: z.string().max(500000).default(""),
   })
   .strict()
-  .refine((v) => v.end > v.start, "End must be after start");
+  .refine(
+    (v) => v.end > v.start,
+    () => ({ message: serverMessage("tasks.endMustBeAfterStart") }),
+  );
 export function validatePayload(kind: string, payload: any) {
   if (kind !== "email" && kind !== "event")
-    throw new Error("Invalid task kind");
+    throw new Error(serverMessage("tasks.invalidTaskKind"));
   return (kind === "email" ? emailSchema : eventSchema).parse(payload);
 }
 const escapeHTML = (s: string) =>
@@ -65,7 +73,9 @@ export function renderPayload(payload: any, row: Record<string, any>) {
               row[field] === undefined ||
               row[field] === null
             )
-              throw new Error(`Missing field: ${field}`);
+              throw new Error(
+                serverMessage("tasks.missingFieldValue0", { value0: field }),
+              );
             return key === "html"
               ? escapeHTML(String(row[field]))
               : String(row[field]);
@@ -88,7 +98,9 @@ export function webhookBody(kind: string, payload: any) {
             {
               type: "TextBlock",
               text:
-                kind === "email" ? "Email request" : "Calendar event request",
+                kind === "email"
+                  ? serverMessage("tasks.emailRequest")
+                  : serverMessage("tasks.calendarEventRequest"),
               wrap: true,
             },
           ],
@@ -107,12 +119,26 @@ export function createTasks(store: Store, fetcher: typeof fetch = fetch) {
     db
       .prepare("INSERT OR REPLACE INTO tasks VALUES (?,?,?)")
       .run(task.id, JSON.stringify(task), task.createdAt);
+  const setItemError = (
+    item: any,
+    key: ServerMessageKey,
+    values: Record<string, string | number> = {},
+  ) => {
+    item.errorKey = key;
+    item.errorValues = values;
+    item.error = serverMessage(key, values);
+  };
   const get = (taskId: string): any => {
     const row = db
       .prepare("SELECT value FROM tasks WHERE id=?")
       .get(taskId) as any;
-    if (!row) throw new Error("Task not found");
-    return JSON.parse(row.value);
+    if (!row) throw new Error(serverMessage("tasks.taskNotFound"));
+    const task = JSON.parse(row.value);
+    for (const item of task.items || []) {
+      if (item.errorKey)
+        item.error = serverMessage(item.errorKey, item.errorValues);
+    }
+    return task;
   };
   const list = () =>
     (
@@ -145,7 +171,9 @@ export function createTasks(store: Store, fetcher: typeof fetch = fetch) {
       renderedBytes += Buffer.byteLength(JSON.stringify(payload));
       if (renderedBytes > 10 * 1024 * 1024)
         throw new Error(
-          "Rendered batch exceeds 10 MB; split into smaller batches",
+          serverMessage(
+            "tasks.renderedBatchExceeds10MBSplitIntoSmallerBatches",
+          ),
         );
       return { id: id(), status: "pending", payload };
     });
@@ -153,7 +181,7 @@ export function createTasks(store: Store, fetcher: typeof fetch = fetch) {
       input.templateId &&
       !db.prepare("SELECT id FROM templates WHERE id=?").get(input.templateId)
     )
-      throw new Error("Template not found");
+      throw new Error(serverMessage("tasks.templateNotFound"));
     const template = input.templateId
       ? JSON.parse(
           (
@@ -214,7 +242,7 @@ export function createTasks(store: Store, fetcher: typeof fetch = fetch) {
         try {
           if (!encrypted) {
             item.status = "failed";
-            item.error = "Webhook is not configured";
+            setItemError(item, "tasks.webhookIsNotConfigured");
           } else {
             const url = store.decrypt(encrypted);
             const res = await fetcher(url, {
@@ -230,13 +258,19 @@ export function createTasks(store: Store, fetcher: typeof fetch = fetch) {
                 ? "uncertain"
                 : "failed";
             if (!res.ok)
-              item.error = `Webhook HTTP ${res.status}; inspect flow run history`;
+              setItemError(
+                item,
+                "tasks.webhookHTTPValue0InspectFlowRunHistory",
+                { value0: res.status },
+              );
             await res.body?.cancel();
           }
         } catch {
           item.status = "uncertain";
-          item.error =
-            "Delivery result unknown; inspect flow run history before retrying";
+          setItemError(
+            item,
+            "tasks.deliveryResultUnknownInspectFlowRunHistoryBeforeRetrying",
+          );
         }
         const current = get(task.id);
         const cancelled = current.status === "cancelled";
@@ -287,7 +321,10 @@ export function createTasks(store: Store, fetcher: typeof fetch = fetch) {
       task.items.forEach((i: any) => {
         if (i.status === "running") {
           i.status = "uncertain";
-          i.error = "Server restarted during request; inspect flow history";
+          setItemError(
+            i,
+            "tasks.serverRestartedDuringRequestInspectFlowHistory",
+          );
         }
       });
       if (task.status !== "cancelled")
@@ -302,7 +339,7 @@ export function createTasks(store: Store, fetcher: typeof fetch = fetch) {
   const confirm = (taskId: string) => {
     const task = get(taskId);
     if (task.status !== "draft")
-      throw new Error("Only draft tasks may be confirmed");
+      throw new Error(serverMessage("tasks.onlyDraftTasksMayBeConfirmed"));
     task.status = "queued";
     save(task);
     store.audit(`task.confirmed:${taskId}`, task.source);
@@ -311,7 +348,7 @@ export function createTasks(store: Store, fetcher: typeof fetch = fetch) {
   const cancel = (taskId: string) => {
     const task = get(taskId);
     if (!["draft", "queued", "running"].includes(task.status))
-      throw new Error("Task cannot be cancelled");
+      throw new Error(serverMessage("tasks.taskCannotBeCancelled"));
     task.status = "cancelled";
     task.items.forEach((i: any) => {
       if (i.status === "pending") i.status = "cancelled";

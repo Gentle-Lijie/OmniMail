@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useMessages } from "@/lib/i18n";
 import { nextTick, ref, watch } from "vue";
 import { X } from "lucide-vue-next";
 import {
@@ -8,13 +9,13 @@ import {
 } from "@/lib/recipients";
 import { insertFieldToken } from "@/lib/fieldInsertion";
 
+const copy = useMessages("recipientInput");
 const props = defineProps<{
   modelValue: string;
   id?: string;
   label: string;
   readonly?: boolean;
   placeholder?: string;
-  t: (zh: string, en: string) => string;
 }>();
 const emit = defineEmits<{ "update:modelValue": [string] }>();
 const tokens = ref<RecipientToken[]>([]);
@@ -139,21 +140,21 @@ defineExpose({ insert });
         v-else
         type="button"
         class="recipient-token-value"
-        :aria-label="t('编辑', 'Edit') + ' ' + token.value"
+        :aria-label="copy.edit + ' ' + token.value"
         :title="
           token.kind === 'invalid'
-            ? t('未识别为邮箱，点击修改', 'Invalid email. Click to edit')
-            : t('点击修改', 'Click to edit')
+            ? copy.invalidEmailClickToEdit
+            : copy.clickToEdit
         "
         @click="edit(index)"
       >
-        {{ token.value || t("空邮箱", "Empty email") }}
+        {{ token.value || copy.emptyEmail }}
       </button>
       <button
         v-if="!readonly"
         type="button"
         class="recipient-token-remove"
-        :aria-label="t('移除', 'Remove') + ' ' + token.value"
+        :aria-label="copy.remove + ' ' + token.value"
         @click="remove(index)"
       >
         <X :size="12" />
@@ -166,13 +167,7 @@ defineExpose({ insert });
       :readonly="readonly"
       :aria-label="label"
       :placeholder="
-        tokens.length
-          ? undefined
-          : placeholder ||
-            t(
-              '粘贴邮箱或 Outlook 收件人；支持换行、空格、逗号、分号',
-              'Paste emails or Outlook recipients; separate with spaces, commas, semicolons or newlines',
-            )
+        tokens.length ? undefined : placeholder || copy.recipientPlaceholder
       "
       rows="1"
       class="recipient-entry"

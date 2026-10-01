@@ -1,3 +1,4 @@
+import { serverMessage, withLocale, requestLocale } from "./i18n.js";
 import Fastify from "fastify";
 import cookie from "@fastify/cookie";
 import multipart from "@fastify/multipart";
@@ -37,6 +38,9 @@ export async function buildApp(options: AppOptions) {
   await app.register(multipart, {
     limits: { fileSize: 5 * 1024 * 1024, files: 1, fields: 5 },
   });
+  app.addHook("onRequest", (req, _reply, done) => {
+    withLocale(requestLocale(req.headers["accept-language"]), done);
+  });
   configureAuth(app, store, options.origin, options.setupToken);
   app.setErrorHandler((err, req, reply) => {
     const e = err as any;
@@ -45,17 +49,20 @@ export async function buildApp(options: AppOptions) {
         ? e.issues
             .map((i: any) => `${i.path.join(".")}: ${i.message}`)
             .join("; ")
-        : e.message || "Request failed";
+        : e.message || serverMessage("app.requestFailed");
     if (
       message.includes("SQLITE") ||
       message.includes("constraint") ||
       message.includes("fetch") ||
       message.includes("https://")
     )
-      message = "Request failed; check configuration or input";
-    reply
-      .code(e.statusCode && e.statusCode >= 400 ? e.statusCode : 400)
-      .send({ error: message, ...(e instanceof ProviderError ? { code: e.code, upstreamStatus: e.upstreamStatus } : {}) });
+      message = serverMessage("app.requestFailedCheckConfigurationOrInput");
+    reply.code(e.statusCode && e.statusCode >= 400 ? e.statusCode : 400).send({
+      error: message,
+      ...(e instanceof ProviderError
+        ? { code: e.code, upstreamStatus: e.upstreamStatus }
+        : {}),
+    });
   });
   app.addHook("onSend", async (req, reply, payload) => {
     reply
@@ -130,11 +137,12 @@ export async function buildApp(options: AppOptions) {
   );
   app.post("/api/agent/attachments", async (req) => {
     const file = await req.file();
-    if (!file) throw Error("File required");
+    if (!file) throw Error(serverMessage("app.fileRequired"));
     return readAgentAttachment(file.filename, await file.toBuffer());
   });
   app.post("/api/agent", async (req, reply) => {
-    if (!req.headers.accept?.includes("text/event-stream")) return ai.agent(req.body);
+    if (!req.headers.accept?.includes("text/event-stream"))
+      return ai.agent(req.body);
     const stream = new PassThrough();
     const controller = new AbortController();
     let lastStage = "";
@@ -146,16 +154,42 @@ export async function buildApp(options: AppOptions) {
       }
       stream.write(`data: ${JSON.stringify(event)}\n\n`);
     };
-    const heartbeat = setInterval(() => { if (!stream.destroyed) stream.write(": heartbeat\n\n"); }, 10000);
-    reply.raw.on("close", () => { controller.abort(); clearInterval(heartbeat); stream.destroy(); });
-    reply.header("Content-Type", "text/event-stream; charset=utf-8").header("X-Accel-Buffering", "no");
-    void ai.agent(req.body, { onProgress: event => emit({ ...event }), signal: controller.signal })
-      .then(result => emit({ type: "result", result }))
-      .catch(error => {
-        const message = error instanceof ProviderError ? error.message : error instanceof z.ZodError ? "Invalid Agent request or attachments" : "Agent request failed; check input and configuration";
-        emit({ type: "error", error: message, ...(error instanceof ProviderError ? { code: error.code } : {}) });
+    const heartbeat = setInterval(() => {
+      if (!stream.destroyed) stream.write(": heartbeat\n\n");
+    }, 10000);
+    reply.raw.on("close", () => {
+      controller.abort();
+      clearInterval(heartbeat);
+      stream.destroy();
+    });
+    reply
+      .header("Content-Type", "text/event-stream; charset=utf-8")
+      .header("X-Accel-Buffering", "no");
+    void ai
+      .agent(req.body, {
+        onProgress: (event) => emit({ ...event }),
+        signal: controller.signal,
       })
-      .finally(() => { clearInterval(heartbeat); stream.end(); });
+      .then((result) => emit({ type: "result", result }))
+      .catch((error) => {
+        const message =
+          error instanceof ProviderError
+            ? error.message
+            : error instanceof z.ZodError
+              ? serverMessage("app.invalidAgentRequestOrAttachments")
+              : serverMessage(
+                  "app.agentRequestFailedCheckInputAndConfiguration",
+                );
+        emit({
+          type: "error",
+          error: message,
+          ...(error instanceof ProviderError ? { code: error.code } : {}),
+        });
+      })
+      .finally(() => {
+        clearInterval(heartbeat);
+        stream.end();
+      });
     return reply.send(stream);
   });
   const templateSchema = z.object({
@@ -177,7 +211,7 @@ export async function buildApp(options: AppOptions) {
     const r = db
       .prepare("SELECT value FROM templates WHERE id=?")
       .get(templateId) as any;
-    if (!r) throw new Error("Template not found");
+    if (!r) throw new Error(serverMessage("app.templateNotFound"));
     return JSON.parse(r.value);
   };
   const templateSave = (body: any, templateId = id(), version = 1) => {
@@ -236,7 +270,7 @@ export async function buildApp(options: AppOptions) {
           "SELECT value FROM template_versions WHERE templateId=? AND version=?",
         )
         .get(req.params.id, version) as any;
-      if (!row) throw new Error("Version not found");
+      if (!row) throw new Error(serverMessage("app.versionNotFound"));
       return templateSave(
         JSON.parse(row.value),
         req.params.id,
@@ -246,7 +280,7 @@ export async function buildApp(options: AppOptions) {
   );
   app.post("/api/import", async (req) => {
     const file = await req.file();
-    if (!file) throw new Error("File required");
+    if (!file) throw new Error(serverMessage("app.fileRequired"));
     const buffer = await file.toBuffer();
     let rows: any[];
     const check = (columns: any[]) => {
@@ -261,7 +295,7 @@ export async function buildApp(options: AppOptions) {
         ) ||
         new Set(columns).size !== columns.length
       )
-        throw new Error("Invalid or duplicate column headers");
+        throw new Error(serverMessage("app.invalidOrDuplicateColumnHeaders"));
       return columns;
     };
     if (/\.csv$/i.test(file.filename))
@@ -286,9 +320,9 @@ export async function buildApp(options: AppOptions) {
       });
       check(raw[0] ?? []);
       rows = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: false });
-    } else throw new Error("Use CSV, XLS or XLSX");
+    } else throw new Error(serverMessage("app.useCSVXLSOrXLSX"));
     if (!rows.length || rows.length > 1000)
-      throw new Error("Import must contain 1–1000 data rows");
+      throw new Error(serverMessage("app.importMustContain11000DataRows"));
     const columns = check(Object.keys(rows[0]));
     return { columns, rows, count: rows.length };
   });
@@ -364,7 +398,9 @@ export async function buildApp(options: AppOptions) {
   });
   app.post("/mcp", async (req, reply) => {
     if (req.headers.origin && req.headers.origin !== options.origin)
-      return reply.code(403).send({ error: "Origin not allowed" });
+      return reply
+        .code(403)
+        .send({ error: serverMessage("app.originNotAllowed") });
     const token = req.headers.authorization?.replace(/^Bearer /, "");
     const key = token
       ? (db
@@ -372,14 +408,16 @@ export async function buildApp(options: AppOptions) {
           .get(hash(token)) as any)
       : null;
     if (!key)
-      return reply.code(401).send({ error: "Valid Bearer API key required" });
+      return reply
+        .code(401)
+        .send({ error: serverMessage("app.validBearerAPIKeyRequired") });
     const server = new McpServer({ name: "OmniMail", version: "1.0.0" });
     const result = (data: any) => ({
       content: [{ type: "text" as const, text: JSON.stringify(data) }],
     });
     server.tool(
       "send_email",
-      "Send Outlook email immediately (no human approval); returns queued task. Acceptance does not prove delivery.",
+      serverMessage("mcp.sendEmail"),
       {
         payload: z
           .object({
@@ -407,7 +445,7 @@ export async function buildApp(options: AppOptions) {
     );
     server.tool(
       "create_event",
-      "Create Beijing-time calendar event immediately; attendees receive invitations.",
+      serverMessage("mcp.createEvent"),
       { payload: eventSchema },
       async ({ payload }) => {
         const t = tasks.create({ kind: "event", payload }, `mcp:${key.id}`);
@@ -416,13 +454,13 @@ export async function buildApp(options: AppOptions) {
     );
     server.tool(
       "get_task",
-      "Get execution status and item results.",
+      serverMessage("mcp.getTask"),
       { id: z.string() },
       async ({ id }) => result(tasks.get(id)),
     );
     server.tool(
       "list_templates",
-      "List reusable email and calendar templates.",
+      serverMessage("mcp.listTemplates"),
       {},
       async () => result(templates()),
     );
@@ -439,14 +477,16 @@ export async function buildApp(options: AppOptions) {
     await transport.handleRequest(req.raw, reply.raw, req.body);
   });
   app.get("/mcp", async (req, reply) =>
-    reply.code(405).send({ error: "Use Streamable HTTP POST /mcp" }),
+    reply
+      .code(405)
+      .send({ error: serverMessage("app.useStreamableHTTPPOSTMcp") }),
   );
   const root = options.staticRoot ?? resolve("frontend/dist");
   if (existsSync(root)) {
     await app.register(staticPlugin, { root });
     app.setNotFoundHandler(async (req, reply) => {
       if (req.url.startsWith("/api/") || req.url.startsWith("/mcp"))
-        return reply.code(404).send({ error: "Not found" });
+        return reply.code(404).send({ error: serverMessage("app.notFound") });
       return reply.sendFile("index.html");
     });
   }

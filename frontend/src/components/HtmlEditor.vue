@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useMessages } from "@/lib/i18n";
 import {
   ref,
   computed,
@@ -13,10 +14,11 @@ import { Textarea } from "@/components/ui/textarea";
 import AppSelect from "./ui/AppSelect.vue";
 import { escapeHtml, previewDocument } from "@/lib/mailMerge";
 import { useFeedback } from "@/lib/notifications";
+
+const copy = useMessages("htmlEditor");
 const RichEditor = defineAsyncComponent(() => import("./RichEditor.vue"));
 const tokenLabel = (field: string) => `{{${field}}}`;
 const props = defineProps<{
-  t: (zh: string, en: string) => string;
   fields?: string[];
   dark?: boolean;
   disabled?: boolean;
@@ -40,15 +42,10 @@ const richReady = ref(false);
 useFeedback({
   pending: () =>
     !richReady.value && !richFailed.value
-      ? props.t("正在加载富文本编辑器…", "Loading rich text editor…")
+      ? copy.value.loadingRichTextEditor
       : "",
   warning: () =>
-    richFailed.value
-      ? props.t(
-          "富文本编辑器加载失败，已切换到 Raw HTML。",
-          "Rich text failed to load. Switched to Raw HTML.",
-        )
-      : "",
+    richFailed.value ? copy.value.richTextFailedToLoadSwitchedToRawHTML : "",
 });
 let start = 0,
   end = 0;
@@ -109,24 +106,25 @@ onErrorCaptured(() => {
       @update:model-value="emit('update:fieldTarget', 'html')"
       ><TabsList
         ><TabsTrigger value="rich" :disabled="richFailed"
-          ><PenLine :size="14" />TinyMCE</TabsTrigger
-        ><TabsTrigger value="source"><Code :size="14" />Raw HTML</TabsTrigger
+          ><PenLine :size="14" />{{ copy.tinyMce }}</TabsTrigger
+        ><TabsTrigger value="source"
+          ><Code :size="14" />{{ copy.rawHtml }}</TabsTrigger
         ><TabsTrigger value="preview"
-          ><Eye :size="14" />{{ t("预览", "Preview") }}</TabsTrigger
+          ><Eye :size="14" />{{ copy.preview }}</TabsTrigger
         ></TabsList
       ><span class="muted text-xs">{{
-        t("字段高亮 · 点击插入", "Highlighted fields · click to insert")
+        copy.highlightedFieldsClickToInsert
       }}</span></Tabs
     >
     <div v-if="fields?.length" class="field-insert">
-      <span>{{ t("插入到", "Insert into") }}</span>
+      <span>{{ copy.insertInto }}</span>
       <AppSelect
         v-if="fieldTargets?.length"
         :model-value="fieldTarget || 'html'"
         :options="fieldTargets"
         :disabled="disabled"
         class="field-target-select"
-        :aria-label="t('字段插入目标', 'Field insertion target')"
+        :aria-label="copy.fieldInsertionTarget"
         @update:model-value="$event && emit('update:fieldTarget', $event)"
       />
       <Button
@@ -165,7 +163,7 @@ onErrorCaptured(() => {
       <pre aria-hidden="true" v-html="highlighted"></pre>
       <Textarea
         v-model="model"
-        :aria-label="t('HTML 正文', 'HTML body')"
+        :aria-label="copy.htmlBody"
         spellcheck="false"
         :disabled="disabled"
         @focus="emit('update:fieldTarget', 'html')"
@@ -178,12 +176,12 @@ onErrorCaptured(() => {
     </div>
     <div v-if="tab === 'preview'" class="preview-surface">
       <p v-if="previewSubject" class="preview-subject">
-        {{ t("主题", "Subject") }}: {{ previewSubject }}
+        {{ copy.subject }}: {{ previewSubject }}
       </p>
       <iframe
         sandbox=""
         referrerpolicy="no-referrer"
-        :title="t('HTML 安全预览', 'Sandboxed HTML preview')"
+        :title="copy.sandboxedHtmlPreview"
         :srcdoc="previewDocument(previewHtml ?? model)"
       />
     </div>

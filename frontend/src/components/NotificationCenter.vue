@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useMessages } from "@/lib/i18n";
 import {
   computed,
   defineComponent,
@@ -27,7 +28,8 @@ import {
 } from "lucide-vue-next";
 import { Button } from "./ui/button";
 import type { NotificationAction } from "@/lib/notifications";
-defineProps<{ t: (zh: string, en: string) => string }>();
+
+const copy = useMessages("notificationCenter");
 const icon = (component: Component, spinning = false) =>
   markRaw(
     defineComponent({
@@ -141,11 +143,7 @@ const actionOf = (props: Record<string, unknown>) =>
   props.action as NotificationAction | undefined;
 </script>
 <template>
-  <Notivue
-    v-slot="item"
-    :styles="styles"
-    :list-aria-label="t('通知', 'Notifications')"
-  >
+  <Notivue v-slot="item" :styles="styles" :list-aria-label="copy.notifications">
     <Notification
       :item="item"
       :theme="theme"
@@ -160,7 +158,7 @@ const actionOf = (props: Record<string, unknown>) =>
         variant="ghost"
         size="icon-sm"
         class="notification-close"
-        :aria-label="t('关闭通知', 'Dismiss notification')"
+        :aria-label="copy.dismissNotification"
         @click="item.clear"
         ><X :size="16"
       /></Button>

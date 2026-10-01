@@ -1,3 +1,4 @@
+import { serverMessage } from "./i18n.js";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import {
   generateRegistrationOptions,
@@ -55,7 +56,9 @@ export function configureAuth(
     if (!req.url.startsWith("/api/")) return;
     const incoming = req.headers.origin;
     if (incoming && incoming !== origin)
-      return reply.code(403).send({ error: "Origin not allowed" });
+      return reply
+        .code(403)
+        .send({ error: serverMessage("auth.originNotAllowed") });
     if (req.url.startsWith("/api/auth/")) {
       if (req.method === "POST") {
         const now = Date.now();
@@ -65,21 +68,25 @@ export function configureAuth(
           attempts.set(req.ip, a);
         }
         if (++a.n > 30)
-          return reply
-            .code(429)
-            .send({ error: "Too many authentication attempts" });
+          return reply.code(429).send({
+            error: serverMessage("auth.tooManyAuthenticationAttempts"),
+          });
         if (attempts.size > 10000) attempts.clear();
       }
       return;
     }
     const s = load(req);
     if (!s?.authenticated)
-      return reply.code(401).send({ error: "Passkey login required" });
+      return reply
+        .code(401)
+        .send({ error: serverMessage("auth.passkeyLoginRequired") });
     if (
       !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
       req.headers["x-csrf-token"] !== s.csrfToken
     )
-      return reply.code(403).send({ error: "Invalid CSRF token" });
+      return reply
+        .code(403)
+        .send({ error: serverMessage("auth.invalidCSRFToken") });
   });
   app.get("/api/auth/status", async (req, reply) => {
     db.prepare("DELETE FROM sessions WHERE expiresAt<?").run(Date.now());
@@ -101,11 +108,13 @@ export function configureAuth(
         typeof body?.setupToken !== "string" ||
         hash(body.setupToken) !== hash(setupToken)
       )
-        return reply.code(403).send({ error: "Valid setup token required" });
+        return reply
+          .code(403)
+          .send({ error: serverMessage("auth.validSetupTokenRequired") });
     } else if (!s?.authenticated || !store.get("registrationEnabled", true))
-      return reply
-        .code(403)
-        .send({ error: "Passkey registration disabled or login required" });
+      return reply.code(403).send({
+        error: serverMessage("auth.passkeyRegistrationDisabledOrLoginRequired"),
+      });
     if (!s) s = session(req, reply);
     const options = await generateRegistrationOptions({
       rpName: "OmniMail",
@@ -147,7 +156,9 @@ export function configureAuth(
       (s.initial && count() > 0) ||
       (!s.initial && !store.get("registrationEnabled", true))
     )
-      return reply.code(403).send({ error: "Registration challenge expired" });
+      return reply
+        .code(403)
+        .send({ error: serverMessage("auth.registrationChallengeExpired") });
     const challenge = s.challenge;
     delete s.challenge;
     s.purpose = null;
@@ -161,9 +172,9 @@ export function configureAuth(
       requireUserVerification: true,
     });
     if (!result.verified || !result.registrationInfo)
-      throw new Error("Passkey verification failed");
+      throw new Error(serverMessage("auth.passkeyVerificationFailed"));
     if (s.initial && count() > 0)
-      throw new Error("Workspace already initialized");
+      throw new Error(serverMessage("auth.workspaceAlreadyInitialized"));
     const c = result.registrationInfo.credential;
     db.prepare("INSERT INTO passkeys VALUES (?,?,?,?)").run(
       c.id,
@@ -203,7 +214,9 @@ export function configureAuth(
   app.post("/api/auth/login/verify", async (req, reply) => {
     const s = load(req);
     if (!s || s.purpose !== "login" || s.challengeExpires < Date.now())
-      return reply.code(403).send({ error: "Login challenge expired" });
+      return reply
+        .code(403)
+        .send({ error: serverMessage("auth.loginChallengeExpired") });
     const challenge = s.challenge;
     delete s.challenge;
     s.purpose = null;
@@ -212,7 +225,7 @@ export function configureAuth(
     const row = db
       .prepare("SELECT credential FROM passkeys WHERE id=?")
       .get(response.id) as any;
-    if (!row) throw new Error("Unknown Passkey");
+    if (!row) throw new Error(serverMessage("auth.unknownPasskey"));
     const c = JSON.parse(row.credential);
     const result = await verifyAuthenticationResponse({
       response,
@@ -222,7 +235,7 @@ export function configureAuth(
       credential: { ...c, publicKey: Buffer.from(c.publicKey, "base64") },
       requireUserVerification: true,
     });
-    if (!result.verified) throw new Error("Login failed");
+    if (!result.verified) throw new Error(serverMessage("auth.loginFailed"));
     c.counter = result.authenticationInfo.newCounter;
     db.prepare("UPDATE passkeys SET credential=? WHERE id=?").run(
       JSON.stringify(c),
@@ -235,7 +248,9 @@ export function configureAuth(
   app.post("/api/auth/logout", async (req, reply) => {
     const s = load(req);
     if (!s || req.headers["x-csrf-token"] !== s.csrfToken)
-      return reply.code(403).send({ error: "Invalid CSRF token" });
+      return reply
+        .code(403)
+        .send({ error: serverMessage("auth.invalidCSRFToken") });
     db.prepare("DELETE FROM sessions WHERE id=?").run(
       hash(req.cookies.omnimail!),
     );
@@ -246,7 +261,8 @@ export function configureAuth(
     db.prepare("SELECT id,name,createdAt FROM passkeys").all(),
   );
   app.delete<{ Params: { id: string } }>("/api/passkeys/:id", async (req) => {
-    if (count() <= 1) throw new Error("Cannot delete the last Passkey");
+    if (count() <= 1)
+      throw new Error(serverMessage("auth.cannotDeleteTheLastPasskey"));
     db.prepare("DELETE FROM passkeys WHERE id=?").run(req.params.id);
     store.audit("passkey.removed");
     return { ok: true };

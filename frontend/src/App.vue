@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useMessages, taskError } from "@/lib/i18n";
 import { ref, computed, onMounted, onUnmounted, watch } from "vue";
 import {
   startAuthentication,
@@ -52,20 +53,17 @@ import {
   type Payload,
   type Key,
 } from "@/lib/api";
-import { i18n, translate } from "@/lib/i18n";
-const language = ref("zh");
+import { setLocale, savedLocale } from "@/lib/i18n";
+
+const copy = useMessages("app");
+const language = ref<string>(savedLocale());
 watch(
   language,
   (value) => {
-    i18n.global.locale.value = value === "en" ? "en" : "zh";
-    document.documentElement.lang = value === "en" ? "en" : "zh-CN";
+    setLocale(value);
   },
   { immediate: true },
 );
-const t = (zh: string, en: string) => {
-  void language.value;
-  return translate(zh, en);
-};
 const page = ref("dashboard");
 const workspaceBusy = ref(false);
 const humanConfirmed = ref(false);
@@ -85,11 +83,11 @@ watch(
 );
 
 const pages = computed(() => [
-  { id: "dashboard", name: t("工作台", "Workspace"), icon: LayoutDashboard },
-  { id: "history", name: t("历史", "History"), icon: History },
-  { id: "templates", name: t("模板", "Templates"), icon: Files },
-  { id: "settings", name: t("设置", "Settings"), icon: SettingsIcon },
-  { id: "mcp", name: "MCP", icon: Cable },
+  { id: "dashboard", name: copy.value.workspace, icon: LayoutDashboard },
+  { id: "history", name: copy.value.history, icon: History },
+  { id: "templates", name: copy.value.templates, icon: Files },
+  { id: "settings", name: copy.value.settings, icon: SettingsIcon },
+  { id: "mcp", name: copy.value.mcp, icon: Cable },
 ]);
 const auth = ref<AuthStatus>();
 const busy = ref(false);
@@ -102,21 +100,14 @@ useFeedback({
   error,
   success,
   pending: () =>
-    loading.value
-      ? t("正在连接并加载工作区…", "Connecting and loading workspace…")
-      : "",
+    loading.value ? copy.value.connectingAndLoadingWorkspace : "",
   errorAction: () => ({
-    label: t("重试", "Retry"),
+    label: copy.value.retry,
     run: () => (auth.value?.authenticated ? run(loadPage) : status()),
     disabled: () => busy.value || loading.value,
   }),
   warning: () =>
-    page.value === "mcp"
-      ? t(
-          "MCP 的邮件和日程调用不需要人工确认，请只向可信客户端授权。",
-          "MCP email and event calls bypass human confirmation. Authorize trusted clients only.",
-        )
-      : "",
+    page.value === "mcp" ? copy.value.mcpAuthorizationWarning : "",
 });
 async function run(fn: () => Promise<void>) {
   if (busy.value) return;
@@ -198,11 +189,6 @@ watch(page, () => {
   success.value = "";
   if (auth.value?.authenticated && !busy.value) void run(loadPage);
 });
-watch(
-  language,
-  () =>
-    (document.documentElement.lang = language.value === "en" ? "en" : "zh-CN"),
-);
 const kind = ref<Kind>("email");
 const payload = ref<Payload>({
   to: "",
@@ -259,23 +245,9 @@ const formatDate = (value: string) => {
     : value;
 };
 const kindLabel = (value: Kind) =>
-  value === "email" ? t("邮件", "Email") : t("日程", "Event");
-const stateLabel = (s: string) =>
-  t(
-    (
-      {
-        draft: "草稿",
-        pending: "待执行",
-        queued: "排队中",
-        running: "执行中",
-        accepted: "接口已接收",
-        failed: "失败",
-        uncertain: "结果不确定",
-        cancelled: "已取消",
-      } as Record<string, string>
-    )[s] || s,
-    s === "accepted" ? "Accepted by interface" : s,
-  );
+  value === "email" ? copy.value.email : copy.value.event;
+const stateLabel = (state: string) =>
+  copy.value.statuses[state as keyof typeof copy.value.statuses] || state;
 const filtered = computed(() =>
   tasks.value.filter(
     (x) =>
@@ -303,10 +275,7 @@ async function confirm() {
     reviewOpen.value = false;
     page.value = "history";
     detailOpen.value = true;
-    success.value = t(
-      "已请求排队；接口接收不等于投递成功。",
-      "Queue requested; acceptance does not mean delivery.",
-    );
+    success.value = copy.value.queueRequestedAcceptanceDoesNotMeanDelivery;
     await loadPage();
     detail.value = await api<Task>("/tasks/" + idPath(review.value.id));
   });
@@ -342,7 +311,7 @@ async function saveTemplate() {
   await run(async () => {
     const x = templateEdit.value;
     if (!x?.name?.trim() || !x.subject?.trim())
-      throw Error(t("名称与主题必填", "Name and subject required"));
+      throw Error(copy.value.nameAndSubjectRequired);
     const fields = [
       ...new Set(
         Array.from(
@@ -366,7 +335,7 @@ async function saveTemplate() {
     );
     templateEdit.value = undefined;
     await loadPage();
-    success.value = t("模板已保存", "Template saved");
+    success.value = copy.value.templateSaved;
   });
 }
 const deleteRequest = ref<{ path: string; name: string }>();
@@ -376,19 +345,13 @@ async function remove() {
     await api(deleteRequest.value.path, "DELETE");
     deleteRequest.value = undefined;
     await loadPage();
-    success.value = t("已删除", "Deleted");
+    success.value = copy.value.deleted;
   });
 }
 const keyName = ref("");
 const oneTimeKey = ref("");
 useFeedback({
-  warning: () =>
-    oneTimeKey.value
-      ? t(
-          "API 密钥仅显示一次，请安全保存。不要分享给不可信客户端。",
-          "The API key is shown once. Store it securely and share only with trusted clients.",
-        )
-      : "",
+  warning: () => (oneTimeKey.value ? copy.value.apiKeySecurityWarning : ""),
 });
 const endpoint = location.origin + "/mcp";
 const mcpConfig = computed(() =>
@@ -428,35 +391,26 @@ const poll = setInterval(() => {
 onUnmounted(() => clearInterval(poll));
 onMounted(status);
 const navigator = window.navigator;
-const placeholderHint = computed(() =>
-  t("支持双花括号动态字段", "Supports double-brace placeholders"),
+const placeholderHint = computed(
+  () => copy.value.supportsDoubleBracePlaceholders,
 );
 </script>
 <template>
-  <NotificationCenter :t="t" />
+  <NotificationCenter />
   <div v-if="!auth?.authenticated" class="auth page-enter">
-    <div class="brand mb-8"><ArrowUpRight />OmniMail</div>
+    <div class="brand mb-8"><ArrowUpRight />{{ copy.omniMail }}</div>
     <Card class="panel"
-      ><div class="eyebrow">SECURE WORKSPACE</div>
+      ><div class="eyebrow">{{ copy.secureWorkspace }}</div>
       <h1>
-        {{
-          auth?.needsSetup
-            ? t("初始化工作空间", "Initialize workspace")
-            : t("欢迎回来", "Welcome back")
-        }}
+        {{ auth?.needsSetup ? copy.initializeWorkspace : copy.welcomeBack }}
       </h1>
       <p class="muted">
-        {{
-          t(
-            "用 Passkey 安全登录，无需密码。",
-            "Sign in securely with a passkey. No password required.",
-          )
-        }}
+        {{ copy.signInSecurelyWithAPasskeyNoPasswordRequired }}
       </p>
       <Button
         variant="ghost"
         @click="language = language === 'en' ? 'zh' : 'en'"
-        >中文 / English</Button
+        >{{ copy.english }}</Button
       >
 
       <Button
@@ -464,26 +418,21 @@ const placeholderHint = computed(() =>
         class="mt-4"
         :disabled="loading || busy"
         @click="status"
-        >{{ t("重新连接", "Reconnect") }}</Button
+        >{{ copy.reconnect }}</Button
       ><template v-if="auth"
         ><Button
           v-if="!auth.needsSetup"
           class="w-full mt-4"
           :disabled="busy"
           @click="login"
-          >{{ t("使用 Passkey 登录", "Sign in with passkey") }}</Button
+          >{{ copy.signInWithPasskey }}</Button
         >
         <form v-if="auth.needsSetup" @submit.prevent="register">
           <label class="field"
-            ><span>{{ t("Passkey 名称", "Passkey name") }}</span
+            ><span>{{ copy.passkeyName }}</span
             ><Input v-model="name" required autocomplete="username" /></label
           ><label v-if="auth.needsSetup" class="field"
-            ><span>{{
-              t(
-                "初始化令牌（由服务器提供）",
-                "Setup token (provided by server)",
-              )
-            }}</span
+            ><span>{{ copy.setupTokenProvidedByServer }}</span
             ><Input
               v-model="setupToken"
               type="password"
@@ -492,28 +441,19 @@ const placeholderHint = computed(() =>
             class="w-full mt-4"
             variant="outline"
             :disabled="busy || !name.trim()"
-            >{{
-              busy
-                ? t("处理中…", "Working…")
-                : t("注册 Passkey", "Register passkey")
-            }}</Button
+            >{{ busy ? copy.working : copy.registerPasskey }}</Button
           >
         </form></template
       >
       <p class="muted text-xs">
-        {{
-          t(
-            "需要 HTTPS 或 localhost，以及支持 WebAuthn 的设备。",
-            "Requires HTTPS or localhost and a WebAuthn-capable device.",
-          )
-        }}
+        {{ copy.passkeyRequirements }}
       </p></Card
     >
   </div>
   <div v-else class="shell">
     <aside class="sidebar rail">
-      <div class="brand rail-brand" aria-label="OmniMail"><Mail /></div>
-      <nav :aria-label="t('主导航', 'Main navigation')">
+      <div class="brand rail-brand" :aria-label="copy.omniMail"><Mail /></div>
+      <nav :aria-label="copy.mainNavigation">
         <Button
           variant="ghost"
           v-for="item in pages"
@@ -531,15 +471,12 @@ const placeholderHint = computed(() =>
         <Button
           variant="ghost"
           size="icon"
-          :aria-label="t('切换明暗主题', 'Toggle theme')"
-          :title="t('切换明暗主题', 'Toggle theme')"
+          :aria-label="copy.toggleTheme"
+          :title="copy.toggleTheme"
           @click="dark = !dark"
           ><Sun v-if="dark" /><Moon v-else
         /></Button>
-        <div
-          class="session-avatar"
-          :title="t('Passkey 安全会话', 'Passkey secured session')"
-        >
+        <div class="session-avatar" :title="copy.passkeySecuredSession">
           <ShieldCheck :size="18" />
         </div>
       </div>
@@ -547,18 +484,20 @@ const placeholderHint = computed(() =>
     <main class="min-w-0">
       <header class="topbar">
         <div>
-          <span class="mobile-brand">OmniMail / </span
-          ><span class="muted">{{ t("工作空间", "Workspace") }} / </span
+          <span class="mobile-brand">{{ copy.omniMail2 }} </span
+          ><span class="muted">{{ copy.workspace2 }} / </span
           >{{ pages.find((x) => x.id === page)?.name }}
         </div>
         <div class="row">
           <Button
             variant="ghost"
             @click="language = language === 'en' ? 'zh' : 'en'"
-            >{{ language === "en" ? "中文" : "EN" }}</Button
+            >{{
+              language === "en" ? copy.chineseLanguage : copy.englishLanguage
+            }}</Button
           ><Button
             variant="ghost"
-            :aria-label="t('退出', 'Sign out')"
+            :aria-label="copy.signOut"
             :disabled="busy || workspaceBusy"
             @click="
               run(async () => {
@@ -568,7 +507,7 @@ const placeholderHint = computed(() =>
               })
             "
             ><LogOut :size="15" /><span class="signout-label">{{
-              t("退出", "Sign out")
+              copy.signOut
             }}</span></Button
           >
         </div>
@@ -578,7 +517,6 @@ const placeholderHint = computed(() =>
           v-show="page === 'dashboard'"
           :templates="templates"
           :tasks="tasks"
-          :t="t"
           :dark="dark"
           :visible="page === 'dashboard'"
           :locked="busy"
@@ -601,27 +539,22 @@ const placeholderHint = computed(() =>
         <section v-if="page === 'history'" class="page-enter">
           <div class="heading row between">
             <div>
-              <h1>{{ t("执行历史", "Execution history") }}</h1>
+              <h1>{{ copy.executionHistory }}</h1>
               <p class="muted">
-                {{
-                  t(
-                    "接口已接收不代表实际发送成功。不确定状态请人工核实，避免重复发送。",
-                    "Accepted does not mean delivered. Verify uncertain outcomes before retrying.",
-                  )
-                }}
+                {{ copy.historyDeliveryHint }}
               </p>
             </div>
             <Button variant="outline" :disabled="busy" @click="run(loadPage)"
-              ><RefreshCw />{{ t("刷新", "Refresh") }}</Button
+              ><RefreshCw />{{ copy.refresh }}</Button
             >
           </div>
           <Card class="panel"
             ><label class="field"
-              ><span>{{ t("状态筛选", "Filter status") }}</span
+              ><span>{{ copy.filterStatus }}</span
               ><AppSelect
                 v-model="filter"
                 :options="[
-                  { value: 'all', label: t('所有状态', 'All statuses') },
+                  { value: 'all', label: copy.allStatuses },
                   ...statuses.map((status) => ({
                     value: status,
                     label: stateLabel(status),
@@ -630,11 +563,11 @@ const placeholderHint = computed(() =>
             /></label>
             <div class="form-grid">
               <label class="field"
-                ><span>{{ t("模板筛选", "Template") }}</span
+                ><span>{{ copy.template }}</span
                 ><AppSelect
                   v-model="templateFilter"
                   :options="[
-                    { value: 'all', label: t('全部模板', 'All templates') },
+                    { value: 'all', label: copy.allTemplates },
                     ...templates.map((item) => ({
                       value: item.id,
                       label: item.name,
@@ -642,42 +575,41 @@ const placeholderHint = computed(() =>
                   ]"
               /></label>
               <label class="field"
-                ><span>{{ t("调用来源", "Source") }}</span
+                ><span>{{ copy.source }}</span
                 ><AppSelect
                   v-model="sourceFilter"
                   :options="[
-                    { value: 'all', label: t('全部来源', 'All sources') },
-                    { value: 'web', label: 'Web' },
-                    { value: 'mcp', label: 'MCP' },
+                    { value: 'all', label: copy.allSources },
+                    { value: 'web', label: copy.web },
+                    { value: 'mcp', label: copy.mcp },
                   ]"
               /></label>
               <label class="field"
-                ><span>{{ t("开始日期", "From date") }}</span
+                ><span>{{ copy.fromDate }}</span
                 ><Input v-model="fromDate" type="date"
               /></label>
               <label class="field"
-                ><span>{{ t("结束日期", "To date") }}</span
+                ><span>{{ copy.toDate }}</span
                 ><Input v-model="toDate" type="date"
               /></label>
             </div>
             <div v-if="!filtered.length && !loading" class="empty">
-              {{ t("暂无任务", "No tasks yet") }}
+              {{ copy.noTasksYet }}
             </div>
             <div v-for="x in filtered" :key="x.id" class="record row between">
               <div>
                 <strong>{{ x.summary || x.id }}</strong>
                 <p class="muted text-xs">
                   {{ kindLabel(x.kind) }} ·
-                  {{ x.source.startsWith("mcp:") ? "MCP" : "Web" }} ·
+                  {{ x.source.startsWith("mcp:") ? copy.mcp : copy.web }} ·
                   {{ formatDate(x.createdAt) }}
                 </p>
                 <span class="badge">{{ stateLabel(x.status) }}</span> ·
-                {{ t("总数", "Total") }} {{ x.total }} /
-                {{ t("接收", "Accepted") }} {{ x.accepted }} /
-                {{ t("失败", "Failed") }} {{ x.failed }}
+                {{ copy.total }} {{ x.total }} / {{ copy.accepted }}
+                {{ x.accepted }} / {{ copy.failed }} {{ x.failed }}
               </div>
               <Button variant="outline" :disabled="busy" @click="openTask(x)">{{
-                t("查看详情", "Details")
+                copy.details
               }}</Button>
             </div></Card
           >
@@ -685,35 +617,30 @@ const placeholderHint = computed(() =>
         <section v-if="page === 'templates'" class="page-enter">
           <div class="heading row between">
             <div>
-              <h1>{{ t("模板管理", "Templates") }}</h1>
+              <h1>{{ copy.templates2 }}</h1>
               <p class="muted">{{ placeholderHint }}</p>
             </div>
             <Button @click="editTemplate()"
-              ><Plus />{{ t("新建模板", "New template") }}</Button
+              ><Plus />{{ copy.newTemplate }}</Button
             >
           </div>
           <Card class="panel"
             ><div v-if="!templates.length && !loading" class="empty">
-              {{
-                t(
-                  "暂无模板，创建你的第一个模板。",
-                  "No templates. Create your first one.",
-                )
-              }}
+              {{ copy.noTemplatesCreateYourFirstOne }}
             </div>
             <div v-for="x in templates" :key="x.id" class="record">
               <div class="row between">
                 <div>
                   <strong>{{ x.name }}</strong>
                   <span class="badge"
-                    >{{ kindLabel(x.kind) }} · v{{ x.version }}</span
+                    >{{ kindLabel(x.kind) }} {{ copy.v }}{{ x.version }}</span
                   >
                   <p class="muted">{{ x.description }}</p>
                   <p>{{ x.subject }}</p>
                 </div>
                 <div class="row">
                   <Button variant="outline" @click="editTemplate(x)">{{
-                    t("编辑", "Edit")
+                    copy.edit
                   }}</Button
                   ><Button
                     variant="ghost"
@@ -723,7 +650,7 @@ const placeholderHint = computed(() =>
                         name: x.name,
                       }
                     "
-                    >{{ t("删除", "Delete") }}</Button
+                    >{{ copy.delete }}</Button
                   >
                 </div>
               </div>
@@ -732,55 +659,49 @@ const placeholderHint = computed(() =>
         </section>
         <SettingsPage
           v-if="page === 'settings'"
-          :t="t"
           :language="language"
           @language="language = $event"
         />
         <section v-if="page === 'mcp'" class="page-enter">
           <div class="heading">
-            <h1>{{ t("MCP 服务", "MCP service") }}</h1>
+            <h1>{{ copy.mcpService }}</h1>
             <p class="muted">
-              {{
-                t(
-                  "让兼容 MCP 的客户端安全调用 OmniMail。",
-                  "Connect MCP-compatible clients to OmniMail.",
-                )
-              }}
+              {{ copy.connectMCPCompatibleClientsToOmniMail }}
             </p>
           </div>
 
           <div class="workspace">
             <Card class="panel"
               ><h2 class="icon-label">
-                <KeyRound :size="18" />{{ t("API 密钥", "API keys") }}
+                <KeyRound :size="18" />{{ copy.apiKeys }}
               </h2>
               <form @submit.prevent="createKey">
                 <label class="field"
-                  ><span>{{ t("密钥名称", "Key name") }}</span
+                  ><span>{{ copy.keyName }}</span
                   ><Input v-model="keyName" required /></label
                 ><Button class="mt-4" :disabled="busy || !keyName.trim()">{{
-                  t("创建密钥", "Create key")
+                  copy.createKey
                 }}</Button>
               </form>
               <div v-if="oneTimeKey" class="secret-key-panel mt-4">
-                <strong>{{ t("新 API 密钥", "New API key") }}</strong>
+                <strong>{{ copy.newApiKey }}</strong>
                 <pre>{{ oneTimeKey }}</pre>
                 <Button
                   variant="outline"
                   @click="
                     run(async () => {
                       await navigator.clipboard.writeText(oneTimeKey);
-                      success = t('已复制', 'Copied');
+                      success = copy.copied;
                     })
                   "
-                  >{{ t("复制", "Copy") }}</Button
+                  >{{ copy.copy }}</Button
                 >
                 <Button variant="ghost" @click="oneTimeKey = ''">{{
-                  t("我已保存，隐藏", "Saved; hide")
+                  copy.savedHide
                 }}</Button>
               </div>
               <div v-if="!keys.length && !loading" class="empty">
-                {{ t("暂无密钥", "No keys") }}
+                {{ copy.noKeys }}
               </div>
               <div v-for="x in keys" :key="x.id" class="record row between">
                 <div>
@@ -797,28 +718,18 @@ const placeholderHint = computed(() =>
                       name: x.name,
                     }
                   "
-                  >{{ t("撤销", "Revoke") }}</Button
+                  >{{ copy.revoke }}</Button
                 >
               </div></Card
             ><Card class="panel"
-              ><h2>{{ t("客户端配置", "Client configuration") }}</h2>
+              ><h2>{{ copy.clientConfiguration }}</h2>
               <pre>{{ mcpConfig }}</pre>
               <p class="muted">
-                {{
-                  t(
-                    "将占位符替换成刚创建的密钥。",
-                    "Replace the placeholder with your newly created key.",
-                  )
-                }}
+                {{ copy.replaceThePlaceholderWithYourNewlyCreatedKey }}
               </p>
-              <p>send_email · create_event · get_task · list_templates</p>
+              <p>{{ copy.sendEmailCreateEventGetTaskListTemplates }}</p>
               <p class="muted">
-                {{
-                  t(
-                    "邮件 / 日程调用不会在本页执行。",
-                    "No email or calendar calls execute on this page.",
-                  )
-                }}
+                {{ copy.noEmailOrCalendarCallsExecuteOnThisPage }}
               </p></Card
             >
           </div>
@@ -830,13 +741,10 @@ const placeholderHint = computed(() =>
     ><DialogContent class="max-h-[90dvh] overflow-y-auto sm:max-w-2xl"
       ><DialogHeader
         ><DialogTitle>{{
-          detail?.summary || detail?.id || t("执行记录详情", "Task details")
+          detail?.summary || detail?.id || copy.taskDetails
         }}</DialogTitle
         ><DialogDescription>{{
-          t(
-            "接口接收不等于实际发送成功。不确定状态请人工核实，避免重复发送。",
-            "Accepted does not mean delivered. Verify uncertain outcomes before retrying.",
-          )
+          copy.taskDeliveryHint
         }}</DialogDescription></DialogHeader
       ><template v-if="detail"
         ><div class="row between">
@@ -844,31 +752,30 @@ const placeholderHint = computed(() =>
           <span class="muted text-xs">{{ formatDate(detail.createdAt) }}</span>
         </div>
         <p v-if="detail.template" class="muted">
-          {{ t("使用模板", "Template") }}: {{ detail.template.name }} · v{{
-            detail.template.version
-          }}
+          {{ copy.template2 }}: {{ detail.template.name }} {{ copy.v
+          }}{{ detail.template.version }}
         </p>
-        <TaskContent :key="detail.id" :task="detail" :t="t" />
+        <TaskContent :key="detail.id" :task="detail" />
         <p>
-          {{ t("接口调用数", "Interface calls") }}: {{ detail.total }} ·
-          {{ t("已接收", "Accepted") }} {{ detail.accepted }} ·
-          {{ t("失败", "Failed") }}
+          {{ copy.interfaceCalls }}: {{ detail.total }} · {{ copy.accepted2 }}
+          {{ detail.accepted }} ·
+          {{ copy.failed }}
           {{ detail.failed }}
         </p>
         <div class="merge-table-scroll">
           <table class="data-table task-results">
             <caption class="sr-only">
               {{
-                t("逐条执行结果", "Per-item results")
+                copy.perItemResults
               }}
             </caption>
             <thead>
               <tr>
                 <th>
-                  {{ t("收件人 / 参会者", "Recipients / attendees") }}
+                  {{ copy.recipientsAttendees }}
                 </th>
-                <th>{{ t("状态", "Status") }}</th>
-                <th>{{ t("结果说明", "Result details") }}</th>
+                <th>{{ copy.status }}</th>
+                <th>{{ copy.resultDetails }}</th>
               </tr>
             </thead>
             <tbody>
@@ -877,14 +784,14 @@ const placeholderHint = computed(() =>
                   {{
                     item.payload.to ||
                     item.payload.requiredAttendees ||
-                    t("无", "None")
+                    copy.none
                   }}
                 </td>
                 <td>
                   <span class="badge">{{ stateLabel(item.status) }}</span>
                 </td>
                 <td>
-                  {{ item.error || t("无附加错误", "No additional error") }}
+                  {{ taskError(item) || copy.noAdditionalError }}
                 </td>
               </tr>
             </tbody>
@@ -898,7 +805,7 @@ const placeholderHint = computed(() =>
             variant="outline"
             :disabled="busy"
             @click="openTask(detail)"
-            >{{ t("刷新", "Refresh") }}</Button
+            >{{ copy.refresh }}</Button
           ><Button
             v-if="detail.status === 'draft'"
             :disabled="busy"
@@ -906,13 +813,13 @@ const placeholderHint = computed(() =>
               review = detail;
               reviewOpen = true;
             "
-            >{{ t("预览并确认", "Review & confirm") }}</Button
+            >{{ copy.reviewConfirm }}</Button
           ><Button
             v-if="['draft', 'queued', 'running'].includes(detail.status)"
             variant="outline"
             :disabled="busy"
             @click="cancelTask(detail)"
-            >{{ t("取消任务", "Cancel task") }}</Button
+            >{{ copy.cancelTask }}</Button
           >
         </div></template
       ></DialogContent
@@ -921,39 +828,23 @@ const placeholderHint = computed(() =>
   <Dialog v-model:open="reviewOpen"
     ><DialogContent class="max-h-[90dvh] overflow-y-auto sm:max-w-2xl"
       ><DialogHeader
-        ><DialogTitle>{{
-          t("执行前确认", "Confirm before execution")
-        }}</DialogTitle
+        ><DialogTitle>{{ copy.confirmBeforeExecution }}</DialogTitle
         ><DialogDescription>{{
-          t(
-            "确认收件人、数量及内容。此操作会调用邮件或日程接口。接口接收不等于发送成功。",
-            "Review recipients, count and content. This invokes the email/calendar interface. Accepted does not mean delivered.",
-          )
+          copy.executionReviewHint
         }}</DialogDescription></DialogHeader
       ><template v-if="review"
         ><p>
-          {{
-            review.kind === "email" ? t("邮件", "Email") : t("日程", "Event")
-          }}
-          · {{ t("接口调用数", "Interface calls") }}: {{ review.total }} ·
-          {{
-            t(
-              "收件地址数（含抄送/密送）",
-              "Recipient addresses (including CC/BCC)",
-            )
-          }}: {{ recipientCount(review) }}
+          {{ review.kind === "email" ? copy.email : copy.event }}
+          · {{ copy.interfaceCalls }}: {{ review.total }} ·
+          {{ copy.recipientAddressesIncludingCCBCC }}:
+          {{ recipientCount(review) }}
         </p>
-        <TaskContent :key="review.id" :task="review" :t="t" /><label
+        <TaskContent :key="review.id" :task="review" /><label
           class="confirm-check"
           ><AppCheckbox
             v-model="humanConfirmed"
             :disabled="busy || review.status !== 'draft'"
-          /><span>{{
-            t(
-              "我已审核收件人及整批内容，同意执行。",
-              "I reviewed recipients and the entire batch and authorize execution.",
-            )
-          }}</span></label
+          /><span>{{ copy.executionConsent }}</span></label
         >
 
         <div class="actions">
@@ -961,11 +852,11 @@ const placeholderHint = computed(() =>
             variant="outline"
             :disabled="busy"
             @click="reviewOpen = false"
-            >{{ t("保留草稿", "Keep draft") }}</Button
+            >{{ copy.keepDraft }}</Button
           ><Button
             :disabled="busy || !humanConfirmed || review.status !== 'draft'"
             @click="confirm"
-            >{{ t("确认执行", "Confirm execution") }}</Button
+            >{{ copy.confirmExecution }}</Button
           >
         </div></template
       ></DialogContent
@@ -976,35 +867,31 @@ const placeholderHint = computed(() =>
     @update:open="!$event && (templateEdit = undefined)"
     ><DialogContent class="max-h-[90dvh] overflow-y-auto sm:max-w-3xl"
       ><DialogHeader
-        ><DialogTitle>{{ t("编辑模板", "Edit template") }}</DialogTitle
+        ><DialogTitle>{{ copy.editTemplate }}</DialogTitle
         ><DialogDescription>{{
-          t(
-            "保存主题和 HTML 占位符，可回滚历史版本。",
-            "Save subject and HTML placeholders; roll back previous versions.",
-          )
+          copy.templateEditorHint
         }}</DialogDescription></DialogHeader
       >
       <form v-if="templateEdit" @submit.prevent="saveTemplate">
         <label class="field"
-          ><span>{{ t("名称", "Name") }}</span
+          ><span>{{ copy.name }}</span
           ><Input v-model="templateEdit.name" required /></label
         ><label class="field"
-          ><span>{{ t("说明", "Description") }}</span
+          ><span>{{ copy.description }}</span
           ><Input v-model="templateEdit.description" /></label
         ><label class="field"
-          ><span>{{ t("类型", "Kind") }}</span
+          ><span>{{ copy.kind }}</span
           ><AppSelect
             v-model="templateEdit.kind"
             :options="[
-              { value: 'email', label: t('邮件', 'Email') },
-              { value: 'event', label: t('日程', 'Event') },
+              { value: 'email', label: copy.email },
+              { value: 'event', label: copy.event },
             ]" /></label
         ><label class="field"
-          ><span>{{ t("主题", "Subject") }}</span
+          ><span>{{ copy.subject }}</span
           ><Input v-model="templateEdit.subject" required /></label
         ><HtmlEditor
           v-model="templateEdit.html!"
-          :t="t"
           :dark="dark"
           :disabled="busy"
           :fields="
@@ -1028,11 +915,11 @@ const placeholderHint = computed(() =>
                 );
               })
             "
-            >{{ t("历史版本", "Versions") }}</Button
-          ><Button :disabled="busy">{{ t("保存", "Save") }}</Button>
+            >{{ copy.versions }}</Button
+          ><Button :disabled="busy">{{ copy.save }}</Button>
         </div>
         <div v-for="v in versions" :key="v.version" class="record row between">
-          <span>v{{ v.version }} · {{ v.subject }}</span
+          <span>{{ copy.v2 }}{{ v.version }} · {{ v.subject }}</span
           ><Button
             type="button"
             variant="outline"
@@ -1046,10 +933,10 @@ const placeholderHint = computed(() =>
                 );
                 templateEdit = undefined;
                 await loadPage();
-                success = t('已回滚', 'Rolled back');
+                success = copy.rolledBack;
               })
             "
-            >{{ t("回滚", "Roll back") }}</Button
+            >{{ copy.rollBack }}</Button
           >
         </div>
       </form></DialogContent
@@ -1060,23 +947,19 @@ const placeholderHint = computed(() =>
     @update:open="!$event && (deleteRequest = undefined)"
     ><DialogContent
       ><DialogHeader
-        ><DialogTitle>{{
-          t("确认删除 / 撤销", "Confirm deletion / revocation")
-        }}</DialogTitle
+        ><DialogTitle>{{ copy.confirmDeletionRevocation }}</DialogTitle
         ><DialogDescription
           >{{ deleteRequest?.name }} ·
-          {{
-            t("此操作不可撤销。", "This cannot be undone.")
-          }}</DialogDescription
+          {{ copy.thisCannotBeUndone }}</DialogDescription
         ></DialogHeader
       >
 
       <div class="actions">
         <Button variant="outline" @click="deleteRequest = undefined">{{
-          t("返回", "Back")
+          copy.back
         }}</Button
         ><Button variant="destructive" :disabled="busy" @click="remove">{{
-          t("确认删除", "Confirm delete")
+          copy.confirmDelete
         }}</Button>
       </div></DialogContent
     ></Dialog

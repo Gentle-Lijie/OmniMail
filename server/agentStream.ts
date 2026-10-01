@@ -1,3 +1,4 @@
+import { serverMessage } from "./i18n.js";
 export interface AgentProgress {
   type: "progress" | "thinking";
   stage?: "context" | "model" | "drafting" | "validating";
@@ -9,7 +10,8 @@ export async function readProviderStream(
   protocol: string,
   emit: (event: AgentProgress) => void,
 ): Promise<any> {
-  if (!response.body) throw Error("Provider returned an empty stream");
+  if (!response.body)
+    throw Error(serverMessage("agentStream.providerReturnedAnEmptyStream"));
   const reader = response.body.getReader(),
     decoder = new TextDecoder();
   let buffer = "",
@@ -41,10 +43,12 @@ export async function readProviderStream(
     try {
       event = JSON.parse(payload);
     } catch {
-      throw Error("Provider returned invalid stream data");
+      throw Error(
+        serverMessage("agentStream.providerReturnedInvalidStreamData"),
+      );
     }
     if (event.error || event.type === "error")
-      throw Error("Provider stream failed");
+      throw Error(serverMessage("agentStream.providerStreamFailed"));
     if (protocol === "openai-chat") {
       const choice =
         event.choices?.find((item: any) => item.index === 0) ??
@@ -108,7 +112,8 @@ export async function readProviderStream(
       const chunk = await reader.read();
       if (chunk.done) break;
       size += chunk.value.byteLength;
-      if (size > 2000000) throw Error("Provider response exceeds 2 MB");
+      if (size > 2000000)
+        throw Error(serverMessage("agentStream.providerResponseExceeds2MB"));
       buffer += decoder.decode(chunk.value, { stream: true });
       let separator: RegExpExecArray | null;
       while ((separator = /\r?\n\r?\n/.exec(buffer))) {
@@ -118,7 +123,10 @@ export async function readProviderStream(
     }
     buffer += decoder.decode();
     if (buffer.trim()) consume(buffer);
-    if (!complete) throw Error("Provider stream ended before completion");
+    if (!complete)
+      throw Error(
+        serverMessage("agentStream.providerStreamEndedBeforeCompletion"),
+      );
     for (const [index, value] of toolArguments)
       data.content[index].input = JSON.parse(value);
     if (protocol === "openai-responses" && text && !data.output?.length)

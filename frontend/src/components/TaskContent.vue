@@ -1,16 +1,18 @@
 <script setup lang="ts">
+import { useMessages, taskError } from "@/lib/i18n";
 import { computed, ref } from "vue";
 import AppSelect from "./ui/AppSelect.vue";
 import { previewDocument } from "@/lib/mailMerge";
 import type { Task } from "@/lib/api";
 import { useFeedback } from "@/lib/notifications";
+
+const copy = useMessages("taskContent");
 const props = defineProps<{
   task: Task;
-  t: (zh: string, en: string) => string;
 }>();
 const selected = ref("0");
 const item = computed(() => props.task.items?.[Number(selected.value)]);
-useFeedback({ error: () => item.value?.error || "" });
+useFeedback({ error: () => taskError(item.value) });
 const content = computed(() => item.value?.payload || props.task.payload);
 const options = computed(() =>
   (props.task.items || []).map((entry, index) => ({
@@ -25,33 +27,33 @@ const options = computed(() =>
       v-if="options.length"
       v-model="selected"
       :options="options"
-      :aria-label="t('查看执行条目', 'View task item')"
+      :aria-label="copy.viewTaskItem"
     />
     <dl v-if="content" class="content-facts">
       <div>
-        <dt>{{ t("主题", "Subject") }}</dt>
+        <dt>{{ copy.subject }}</dt>
         <dd>{{ content.subject }}</dd>
       </div>
       <div>
-        <dt>{{ t("收件人 / 参会者", "Recipients / attendees") }}</dt>
+        <dt>{{ copy.recipientsAttendees }}</dt>
         <dd>
-          {{ content.to || content.requiredAttendees || t("无", "None") }}
+          {{ content.to || content.requiredAttendees || copy.none }}
         </dd>
       </div>
       <div v-if="content.cc || content.optionalAttendees">
-        <dt>{{ t("抄送 / 可选参会者", "CC / optional attendees") }}</dt>
+        <dt>{{ copy.cCOptionalAttendees }}</dt>
         <dd>{{ content.cc || content.optionalAttendees }}</dd>
       </div>
       <div v-if="content.bcc">
-        <dt>BCC</dt>
+        <dt>{{ copy.bcc }}</dt>
         <dd>{{ content.bcc }}</dd>
       </div>
       <div v-if="content.start">
-        <dt>{{ t("时间 · 北京时间", "Time · Beijing time") }}</dt>
+        <dt>{{ copy.timeBeijingTime }}</dt>
         <dd>{{ content.start }} — {{ content.end }}</dd>
       </div>
       <div v-if="content.location">
-        <dt>{{ t("地点", "Location") }}</dt>
+        <dt>{{ copy.location }}</dt>
         <dd>{{ content.location }}</dd>
       </div>
     </dl>
@@ -61,11 +63,11 @@ const options = computed(() =>
       class="email-preview"
       sandbox=""
       referrerpolicy="no-referrer"
-      :title="t('邮件正文预览', 'Message body preview')"
+      :title="copy.messageBodyPreview"
       :srcdoc="previewDocument(content.html)"
     />
     <p v-else class="muted text-sm">
-      {{ t("此条目没有正文。", "This item has no body.") }}
+      {{ copy.thisItemHasNoBody }}
     </p>
   </div>
 </template>

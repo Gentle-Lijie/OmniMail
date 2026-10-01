@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useMessages, message, isDefaultDraftTitle } from "@/lib/i18n";
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue";
 import {
   Plus,
@@ -59,18 +60,20 @@ import {
   recommendedEmailColumn,
   type DataRow,
 } from "@/lib/mailMerge";
+
+const copy = useMessages("workspaceView");
 const tokenLabel = (field: string) => `{{${field}}}`;
 const eventLabels = computed<Record<string, string>>(() => ({
-  requiredAttendees: props.t("必需参会者", "Required attendees"),
-  optionalAttendees: props.t("可选参会者", "Optional attendees"),
-  start: props.t("开始 · 北京时间", "Start · Beijing time"),
-  end: props.t("结束 · 北京时间", "End · Beijing time"),
-  location: props.t("地点", "Location"),
+  requiredAttendees: copy.value.requiredAttendees,
+  optionalAttendees: copy.value.optionalAttendees,
+  start: copy.value.startBeijingTime,
+  end: copy.value.endBeijingTime,
+  location: copy.value.location,
 }));
 const props = defineProps<{
   templates: Template[];
   tasks: Task[];
-  t: (zh: string, en: string) => string;
+
   dark: boolean;
   visible: boolean;
   locked: boolean;
@@ -116,9 +119,7 @@ function blank(kind: Kind): Draft {
   return {
     id: crypto.randomUUID(),
     title:
-      kind === "email"
-        ? props.t("未命名邮件", "Untitled email")
-        : props.t("未命名日程", "Untitled event"),
+      kind === "email" ? copy.value.untitledEmail : copy.value.untitledEvent,
     kind,
     payload:
       kind === "email"
@@ -147,6 +148,15 @@ function blank(kind: Kind): Draft {
   };
 }
 const drafts = ref<Draft[]>([blank("email")]);
+watch(copy, () => {
+  for (const item of drafts.value) {
+    if (isDefaultDraftTitle(item.title))
+      item.title =
+        item.kind === "email"
+          ? copy.value.untitledEmail
+          : copy.value.untitledEvent;
+  }
+});
 const activeId = ref(drafts.value[0]!.id);
 const draft = computed(() =>
   drafts.value.find((item) => item.id === activeId.value)!,
@@ -178,23 +188,15 @@ useFeedback({
   success,
   pending: () =>
     activity.value && activity.value !== "agent"
-      ? props.t(
-          (
-            {
-              import: "正在导入名单…",
-              save: "正在保存草稿…",
-              agent: "Agent 正在起草…",
-              load: "正在读取草稿…",
-            } as Record<string, string>
-          )[activity.value] || "正在处理…",
-          "Working on your draft…",
-        )
+      ? copy.value.activities[
+          activity.value as keyof typeof copy.value.activities
+        ] || copy.value.activities.other
       : "",
 });
 useFeedback({
   error: agentError,
   errorAction: () => ({
-    label: props.t("检查 AI 配置", "Check AI settings"),
+    label: copy.value.checkAISettings,
     run: () => {
       agentOpen.value = false;
       emit("settings");
@@ -214,7 +216,7 @@ const visibleDrafts = computed(() =>
 const templateOptions = computed(() => [
   {
     value: "none",
-    label: props.t("不使用模板 · 自由写作", "No template · free writing"),
+    label: copy.value.noTemplateFreeWriting,
   },
   ...props.templates
     .filter((item) => item.kind === draft.value.kind)
@@ -245,8 +247,8 @@ const fieldTargets = computed(() => {
     to: "To",
     cc: "CC",
     bcc: "BCC",
-    subject: props.t("主题", "Subject"),
-    html: props.t("正文", "Body"),
+    subject: copy.value.subject,
+    html: copy.value.body,
     ...eventLabels.value,
   };
   const fields =
@@ -335,7 +337,7 @@ const displayedRows = computed(() =>
 const sampleOptions = computed(() =>
   draft.value.rows.map((row, index) => ({
     value: String(index),
-    label: `${props.t("第", "Row")} ${index + 1} · ${String(row[draft.value.recipientColumn] || Object.values(row)[0] || "")}`,
+    label: `${copy.value.row} ${index + 1} · ${String(row[draft.value.recipientColumn] || Object.values(row)[0] || "")}`,
   })),
 );
 const selectedSample = computed({
@@ -473,12 +475,7 @@ function applyTemplate() {
   );
   if (!template) return;
   draft.value.templateId = template.id;
-  if (
-    ["未命名邮件", "Untitled email", "未命名日程", "Untitled event"].includes(
-      draft.value.title,
-    )
-  )
-    draft.value.title = template.name;
+  if (isDefaultDraftTitle(draft.value.title)) draft.value.title = template.name;
   draft.value.payload.subject = template.subject;
   draft.value.payload.html = template.html;
   draft.value.proposal = undefined;
@@ -490,7 +487,7 @@ async function importFile(event: Event) {
   if (!file) return;
   await run("import", async () => {
     if (file.size > 5 * 1024 * 1024)
-      throw Error(props.t("文件不能超过 5 MB。", "File must not exceed 5 MB."));
+      throw Error(copy.value.fileMustNotExceed5MB);
     const form = new FormData();
     form.append("file", file);
     const data = await api<{
@@ -498,10 +495,7 @@ async function importFile(event: Event) {
       rows: DataRow[];
       count: number;
     }>("/import", "POST", form);
-    if (!data.rows.length)
-      throw Error(
-        props.t("名单没有可用数据行。", "The file contains no data rows."),
-      );
+    if (!data.rows.length) throw Error(copy.value.theFileContainsNoDataRows);
     const target = draft.value;
     const recipientKey = target.kind === "email" ? "to" : "requiredAttendees";
     if (!target.rows.length)
@@ -523,10 +517,7 @@ async function importFile(event: Event) {
     );
     for (const field of fieldsIn(target.payload))
       if (target.columns.includes(field)) target.mapping[field] = field;
-    success.value = props.t(
-      "名单已导入。请先确认收件人列，再插入字段。",
-      "Imported. Confirm the recipient column before inserting fields.",
-    );
+    success.value = copy.value.importSuccess;
   });
   input.value = "";
 }
@@ -536,10 +527,7 @@ function selectRecipient(column: string) {
     draft.value.kind === "email" ? "to" : "requiredAttendees"
   ] = `{{${column}}}`;
   draft.value.mapping[column] = column;
-  success.value = props.t(
-    `已确认邮箱列「${column}」。可插入字段并检查整批个性化内容。`,
-    `Confirmed email column “${column}”. Insert fields and review the personalized batch.`,
-  );
+  success.value = message("workspaceView.emailColumnConfirmed", { column });
   error.value = "";
 }
 function clearData() {
@@ -553,29 +541,20 @@ function clearData() {
     target.manualTo;
   target.sample = 0;
   target.proposal = undefined;
-  success.value = props.t(
-    "已移除名单，恢复为单次任务。",
-    "List removed. Restored a single task.",
-  );
+  success.value = copy.value.listRemovedRestoredASingleTask;
   error.value = "";
   clearOpen.value = false;
 }
 async function save(review = false) {
   await run("save", async () => {
     if (draft.value.rows.length && !draft.value.recipientColumn)
-      throw Error(
-        props.t(
-          "请先确认名单的收件人列。",
-          "Confirm the recipient column first.",
-        ),
-      );
+      throw Error(copy.value.confirmTheRecipientColumnFirst);
     if (issues.value.length) {
       draft.value.mergeOpen = !!draft.value.rows.length;
       throw Error(
-        props.t(
-          `请修正 ${issues.value.length} 处问题后再保存。`,
-          `Fix ${issues.value.length} issues before saving.`,
-        ),
+        message("workspaceView.fixIssuesBeforeSaving", {
+          count: issues.value.length,
+        }),
       );
     }
     const target = draft.value;
@@ -602,11 +581,7 @@ async function save(review = false) {
     if (review && target.saved) {
       target.saved = await api<Task>("/tasks/" + idPath(target.saved.id));
       emit("review", target.saved);
-    } else
-      success.value = props.t(
-        "草稿已保存到服务器，尚未执行。",
-        "Draft saved to the server. Not executed.",
-      );
+    } else success.value = copy.value.draftSavedToTheServerNotExecuted;
   });
 }
 let agentController: AbortController | undefined;
@@ -693,12 +668,7 @@ async function ask(instruction: string) {
           typeof proposal.payload?.subject !== "string" ||
           typeof proposal.payload?.html !== "string"
         )
-          throw Error(
-            props.t(
-              "AI 返回的草稿类型或格式不匹配，未应用任何更改。",
-              "AI draft type or format does not match. No changes applied.",
-            ),
-          );
+          throw Error(copy.value.invalidAiDraft);
         target.proposal = proposal;
         target.suggestionContext = {
           subject: proposal.payload.subject,
@@ -711,10 +681,7 @@ async function ask(instruction: string) {
         turn.status = agentController.signal.aborted ? "cancelled" : "error";
         turn.content =
           turn.status === "cancelled"
-            ? props.t(
-                "已停止生成，当前草稿未改变。",
-                "Generation stopped. Your draft is unchanged.",
-              )
+            ? copy.value.generationStoppedYourDraftIsUnchanged
             : error instanceof Error
               ? error.message
               : String(error);
@@ -732,11 +699,7 @@ function applyProposal() {
   if (!proposal) return;
   target.payload.subject = proposal.payload.subject;
   target.payload.html = proposal.payload.html;
-  if (
-    ["未命名邮件", "Untitled email", "未命名日程", "Untitled event"].includes(
-      target.title,
-    )
-  )
+  if (isDefaultDraftTitle(target.title))
     target.title = proposal.payload.subject || target.title;
   const recipientFields = fieldsIn({
     subject: "",
@@ -755,28 +718,16 @@ function applyProposal() {
   selectedTemplate.value = "none";
   target.proposal = undefined;
   agentOpen.value = false;
-  success.value = props.t(
-    "主题与正文已应用。收件人未改变，请检查后审核。",
-    "Subject and body applied. Recipients unchanged. Review before execution.",
-  );
+  success.value = copy.value.proposalApplied;
 }
 function quickAction(action: string) {
   if (action === "check") {
     draft.value.mergeOpen = true;
     if (issues.value.length)
       notify.warning(
-        props.t(
-          `发现 ${issues.value.length} 处问题，请检查正文和名单。`,
-          `${issues.value.length} issues found. Check content and data.`,
-        ),
+        message("workspaceView.issuesFound", { count: issues.value.length }),
       );
-    else
-      notify.success(
-        props.t(
-          "整批字段与收件人校验通过；执行前仍需人工审核。",
-          "All rows and recipients validated. Human review is still required.",
-        ),
-      );
+    else notify.success(copy.value.batchValidationSuccess);
   } else agentOpen.value = true;
 }
 async function reviewSaved(task: Task) {
@@ -800,16 +751,19 @@ onUnmounted(() => {
   document.removeEventListener("keydown", shortcut);
   emit("busy", false);
 });
+
+const deleteDraftDescriptionLabel = (name: string) =>
+  message("workspaceView.deleteDraftDescription", { name });
 </script>
 <template>
   <div class="desk-workspace">
     <aside class="task-space">
       <div class="row between">
-        <h2>{{ t("任务空间", "Task space") }}</h2>
+        <h2>{{ copy.taskSpace }}</h2>
         <Button
           variant="ghost"
           size="icon-sm"
-          :aria-label="t('新建草稿', 'New draft')"
+          :aria-label="copy.newDraft"
           :disabled="busy"
           @click="addDraft()"
           ><Plus
@@ -818,13 +772,13 @@ onUnmounted(() => {
       <div class="search-field">
         <Search :size="15" /><Input
           v-model="search"
-          :placeholder="t('搜索草稿', 'Search drafts')"
-          :aria-label="t('搜索草稿', 'Search drafts')"
+          :placeholder="copy.searchDrafts"
+          :aria-label="copy.searchDrafts"
         />
       </div>
       <div class="task-list">
         <p class="section-label">
-          {{ t("当前工作草稿", "Working drafts") }} · {{ drafts.length }}
+          {{ copy.workingDrafts }} · {{ drafts.length }}
         </p>
         <div v-for="item in visibleDrafts" :key="item.id" class="working-draft">
           <Button
@@ -839,15 +793,15 @@ onUnmounted(() => {
                 v-else
                 :size="14" /></span
             ><span class="muted text-xs">{{
-              item.payload.subject || t("等待起草", "Ready to draft")
+              item.payload.subject || copy.readyToDraft
             }}</span
             ><span class="task-state"
               ><span class="status-dot"></span
-              >{{ item.saved ? t("已保存", "Saved") : t("编辑中", "Editing")
+              >{{ item.saved ? copy.saved : copy.editing
               }}<span>{{
                 item.rows.length
-                  ? `${item.rows.length} ${t("行名单", "rows")}`
-                  : t("单次任务", "Single task")
+                  ? `${item.rows.length} ${copy.rows}`
+                  : copy.singleTask
               }}</span></span
             ></Button
           >
@@ -856,22 +810,20 @@ onUnmounted(() => {
             size="icon-sm"
             class="draft-delete"
             :disabled="busy"
-            :aria-label="
-              t('删除工作草稿', 'Delete working draft') + ': ' + item.title
-            "
-            :title="t('删除工作草稿', 'Delete working draft')"
+            :aria-label="copy.deleteWorkingDraft + ': ' + item.title"
+            :title="copy.deleteWorkingDraft"
             @click="pendingDeleteId = item.id"
             ><Trash2 :size="14"
           /></Button>
         </div>
         <div v-if="!visibleDrafts.length" class="empty">
-          {{ t("没有匹配的草稿", "No matching drafts") }}
+          {{ copy.noMatchingDrafts }}
         </div>
         <p
           v-if="tasks.some((task) => task.status === 'draft')"
           class="section-label"
         >
-          {{ t("服务器草稿", "Saved drafts") }}
+          {{ copy.savedDrafts }}
         </p>
         <Button
           v-for="task in tasks
@@ -884,17 +836,13 @@ onUnmounted(() => {
           @click="reviewSaved(task)"
           ><strong>{{ task.summary }}</strong
           ><span class="muted text-xs"
-            >{{ t("已保存 · 点击审核", "Saved · click to review") }} ·
-            {{ task.total }}</span
+            >{{ copy.savedClickToReview }} · {{ task.total }}</span
           ></Button
         >
       </div>
       <p class="task-space-note">
         <ShieldCheck :size="14" />{{
-          t(
-            "编辑状态保留至本次会话结束；保存后进入服务器草稿。",
-            "Edits last for this session. Save to keep a server draft.",
-          )
+          copy.editsLastForThisSessionSaveToKeepAServerDraft
         }}
       </p>
     </aside>
@@ -907,12 +855,12 @@ onUnmounted(() => {
             :options="
               drafts.map((item) => ({ value: item.id, label: item.title }))
             "
-            :aria-label="t('切换草稿', 'Switch draft')"
+            :aria-label="copy.switchDraft"
           /><Button
             variant="outline"
             size="icon"
             :disabled="busy"
-            :aria-label="t('新建草稿', 'New draft')"
+            :aria-label="copy.newDraft"
             @click="addDraft()"
             ><Plus
           /></Button>
@@ -926,32 +874,32 @@ onUnmounted(() => {
             >
               <TabsList>
                 <TabsTrigger value="email" :disabled="busy">{{
-                  t("邮件", "Email")
+                  copy.email
                 }}</TabsTrigger>
                 <TabsTrigger value="event" :disabled="busy">{{
-                  t("日程", "Event")
+                  copy.event
                 }}</TabsTrigger>
               </TabsList>
             </Tabs>
             <Input
               v-model="draft.title"
               class="draft-title"
-              :aria-label="t('草稿名称', 'Draft name')"
+              :aria-label="copy.draftName"
               :disabled="busy"
             />
           </div>
           <div class="compose-actions">
             <Button variant="outline" :disabled="busy" @click="save()">
-              <Save />{{ t("保存草稿", "Save draft") }}
+              <Save />{{ copy.saveDraft }}
             </Button>
             <Button
               variant="ghost"
               :disabled="busy"
               @click="emit('template', draft.kind, { ...draft.payload })"
-              >{{ t("保存为模板", "Save as template") }}</Button
+              >{{ copy.saveAsTemplate }}</Button
             >
             <Button :disabled="busy" @click="save(true)">
-              <Eye />{{ t("审核并确认", "Review & confirm") }}
+              <Eye />{{ copy.reviewConfirm }}
             </Button>
           </div>
         </div>
@@ -968,9 +916,7 @@ onUnmounted(() => {
                   v-else
                   :size="15"
                 /><strong>{{
-                  draft.kind === "email"
-                    ? t("邮件合并", "Mail merge")
-                    : t("批量日程", "Batch events")
+                  draft.kind === "email" ? copy.mailMerge : copy.batchEvents
                 }}</strong></span
               ></Button
             ><span
@@ -981,8 +927,8 @@ onUnmounted(() => {
               }"
               >{{
                 issues.length || !draft.recipientColumn
-                  ? t("待检查", "Needs review")
-                  : t("校验通过", "Validated")
+                  ? copy.needsReview
+                  : copy.validated
               }}</span
             ><Button
               variant="outline"
@@ -990,23 +936,21 @@ onUnmounted(() => {
               :disabled="busy"
               @click="fileInput?.click()"
               ><Upload />{{
-                t(
-                  draft.rows.length ? "替换名单" : "导入名单",
-                  draft.rows.length ? "Replace list" : "Import list",
-                )
+                draft.rows.length ? copy.replaceList : copy.importList
               }}</Button
             ><Button
               v-if="draft.rows.length"
               variant="ghost"
               size="icon-sm"
               :disabled="busy"
-              :aria-label="t('清除名单', 'Clear list')"
+              :aria-label="copy.clearList"
               @click="clearOpen = true"
               ><X /></Button
             ><input
               ref="fileInput"
               type="file"
               accept=".csv,.xls,.xlsx"
+              :aria-label="copy.importList"
               class="sr-only"
               tabindex="-1"
               @change="importFile"
@@ -1014,35 +958,25 @@ onUnmounted(() => {
           </div>
           <div v-if="draft.mergeOpen" class="merge-body">
             <p v-if="!draft.rows.length" class="muted text-sm">
-              {{
-                t(
-                  "支持 CSV / Excel，最多 5 MB、1000 行。未导入时为单次任务。",
-                  "CSV / Excel, up to 5 MB and 1,000 rows. No list means a single task.",
-                )
-              }}
+              {{ copy.importHelp }}
             </p>
             <template v-else
               ><ol class="merge-steps">
                 <li class="done">
-                  <CheckCircle2 :size="13" />{{ t("导入名单", "Import list") }}
+                  <CheckCircle2 :size="13" />{{ copy.importList }}
                 </li>
                 <li :class="{ done: draft.recipientColumn }">
-                  {{ t("确认收件人", "Confirm recipients") }}
+                  {{ copy.confirmRecipients }}
                 </li>
-                <li>{{ t("插入字段与校验", "Insert fields & validate") }}</li>
+                <li>{{ copy.insertFieldsValidate }}</li>
               </ol>
               <div class="recipient-mapping">
                 <label class="field"
-                  ><span>{{
-                    t(
-                      "收件人列（必须确认）",
-                      "Recipient column (confirm first)",
-                    )
-                  }}</span
+                  ><span>{{ copy.recipientColumnConfirmFirst }}</span
                   ><AppSelect
                     :model-value="draft.recipientColumn || undefined"
                     :options="columnOptions"
-                    :placeholder="t('请选择邮箱列', 'Select email column')"
+                    :placeholder="copy.selectEmailColumn"
                     :disabled="busy"
                     @update:model-value="selectRecipient($event!)" /></label
                 ><Button
@@ -1050,8 +984,7 @@ onUnmounted(() => {
                   variant="secondary"
                   size="sm"
                   @click="selectRecipient(suggestion)"
-                  >{{ t("使用识别列", "Use detected column") }}:
-                  {{ suggestion }}</Button
+                  >{{ copy.useDetectedColumn }}: {{ suggestion }}</Button
                 >
               </div>
               <div class="merge-detail-toggles">
@@ -1061,10 +994,7 @@ onUnmounted(() => {
                   :aria-expanded="dataOpen"
                   @click="dataOpen = !dataOpen"
                   ><FileSpreadsheet />{{
-                    t(
-                      dataOpen ? "收起名单" : "查看 / 编辑名单",
-                      dataOpen ? "Hide data" : "View / edit list",
-                    )
+                    dataOpen ? copy.hideData : copy.viewEditList
                   }}</Button
                 ><Button
                   v-if="placeholders.length"
@@ -1072,8 +1002,7 @@ onUnmounted(() => {
                   size="sm"
                   :aria-expanded="mappingOpen"
                   @click="mappingOpen = !mappingOpen"
-                  >{{ t("字段映射", "Field mapping") }} ·
-                  {{ placeholders.length }}</Button
+                  >{{ copy.fieldMapping }} · {{ placeholders.length }}</Button
                 >
               </div>
               <div
@@ -1085,14 +1014,13 @@ onUnmounted(() => {
                   ><AppSelect
                     v-model="draft.mapping[field]"
                     :options="columnOptions"
-                    :placeholder="t('映射到名单列', 'Map to a column')"
+                    :placeholder="copy.mapToAColumn"
                     :disabled="busy || field === draft.recipientColumn"
                 /></label>
               </div>
               <div v-if="issues.length" class="merge-validation">
                 <AlertCircle :size="15" /><span
-                  >{{ issues.length }}
-                  {{ t("项校验详情", "validation details") }}</span
+                  >{{ issues.length }} {{ copy.validationDetails }}</span
                 ><Button
                   v-for="(issue, issueIndex) in issues.slice(0, 3)"
                   :key="issueIndex"
@@ -1103,7 +1031,7 @@ onUnmounted(() => {
                     dataOpen = true;
                     dataPage = 0;
                   "
-                  >{{ issue.row ? `${t("第", "Row")} ${issue.row} · ` : ""
+                  >{{ issue.row ? `${copy.row} ${issue.row} · ` : ""
                   }}{{ issue.field }}: {{ issue.message }}</Button
                 >
               </div>
@@ -1111,12 +1039,12 @@ onUnmounted(() => {
                 <table class="data-table">
                   <caption class="sr-only">
                     {{
-                      t("邮件合并名单", "Mail merge list")
+                      copy.mailMergeList
                     }}
                   </caption>
                   <thead>
                     <tr>
-                      <th scope="col">{{ t("行", "Row") }}</th>
+                      <th scope="col">{{ copy.row2 }}</th>
                       <th
                         v-for="column in draft.columns"
                         :key="column"
@@ -1159,10 +1087,7 @@ onUnmounted(() => {
                     dataPage = 0;
                   "
                   >{{
-                    t(
-                      problemOnly ? "显示全部" : "只看问题行",
-                      problemOnly ? "Show all" : "Problem rows only",
-                    )
+                    problemOnly ? copy.showAll : copy.problemRowsOnly
                   }}</Button
                 >
                 <div class="row">
@@ -1170,7 +1095,7 @@ onUnmounted(() => {
                     variant="outline"
                     size="icon-sm"
                     :disabled="dataPage === 0"
-                    :aria-label="t('上一页', 'Previous page')"
+                    :aria-label="copy.previousPage"
                     @click="dataPage--"
                     ><ChevronLeft /></Button
                   ><span class="muted text-xs"
@@ -1179,16 +1104,14 @@ onUnmounted(() => {
                     variant="outline"
                     size="icon-sm"
                     :disabled="dataPage + 1 >= pageCount"
-                    :aria-label="t('下一页', 'Next page')"
+                    :aria-label="copy.nextPage"
                     @click="dataPage++"
                     ><ChevronRight
                   /></Button>
                 </div>
               </div>
               <label class="field"
-                ><span>{{
-                  t("个性化预览样本", "Personalized preview sample")
-                }}</span
+                ><span>{{ copy.personalizedPreviewSample }}</span
                 ><AppSelect
                   v-model="selectedSample"
                   :options="sampleOptions" /></label
@@ -1203,10 +1126,9 @@ onUnmounted(() => {
                   v-else
                   :size="17"
                 /><strong>{{
-                  t(
-                    draft.kind === "email" ? "邮件编辑器" : "日程编辑器",
-                    draft.kind === "email" ? "Email editor" : "Calendar editor",
-                  )
+                  draft.kind === "email"
+                    ? copy.emailEditor
+                    : copy.calendarEditor
                 }}</strong></span
               >
               <div class="template-picker">
@@ -1214,14 +1136,14 @@ onUnmounted(() => {
                   v-model="selectedTemplate"
                   :disabled="busy"
                   :options="templateOptions"
-                  :aria-label="t('选择模板', 'Choose template')"
+                  :aria-label="copy.chooseTemplate"
                   @update:model-value="$event === 'none' && requestTemplate()"
                 /><Button
                   variant="ghost"
                   size="sm"
                   :disabled="busy || selectedTemplate === 'none'"
                   @click="requestTemplate"
-                  >{{ t("应用", "Apply") }}</Button
+                  >{{ copy.apply }}</Button
                 >
               </div>
             </div>
@@ -1233,46 +1155,49 @@ onUnmounted(() => {
             >
               <template v-if="draft.kind === 'email'"
                 ><div class="compose-field">
-                  <label for="compose-to">To</label
+                  <label for="compose-to">{{ copy.to }}</label
                   ><RecipientInput
                     :ref="(instance) => setPayloadInput('to', instance)"
                     data-payload-field="to"
                     id="compose-to"
                     v-model="draft.payload.to"
-                    :t="t"
-                    label="To"
+                    :label="copy.to"
                     :readonly="!!draft.rows.length && !draft.recipientColumn"
                     :placeholder="
                       draft.rows.length
-                        ? t('请先确认收件人列', 'Confirm recipient column')
+                        ? copy.confirmRecipientColumn
                         : undefined
                     "
-                  /><Button variant="ghost" size="xs" @click="ccOpen = !ccOpen"
-                    >CC</Button
-                  ><Button variant="ghost" size="xs" @click="bccOpen = !bccOpen"
-                    >BCC</Button
+                  /><Button
+                    variant="ghost"
+                    size="xs"
+                    @click="ccOpen = !ccOpen"
+                    >{{ copy.cc }}</Button
+                  ><Button
+                    variant="ghost"
+                    size="xs"
+                    @click="bccOpen = !bccOpen"
+                    >{{ copy.bcc }}</Button
                   >
                 </div>
                 <div v-if="ccOpen || draft.payload.cc" class="compose-field">
-                  <label for="compose-cc">CC</label
+                  <label for="compose-cc">{{ copy.cc }}</label
                   ><RecipientInput
                     :ref="(instance) => setPayloadInput('cc', instance)"
                     data-payload-field="cc"
                     id="compose-cc"
                     v-model="draft.payload.cc"
-                    :t="t"
-                    label="CC"
+                    :label="copy.cc"
                   />
                 </div>
                 <div v-if="bccOpen || draft.payload.bcc" class="compose-field">
-                  <label for="compose-bcc">BCC</label
+                  <label for="compose-bcc">{{ copy.bcc }}</label
                   ><RecipientInput
                     :ref="(instance) => setPayloadInput('bcc', instance)"
                     data-payload-field="bcc"
                     id="compose-bcc"
                     v-model="draft.payload.bcc"
-                    :t="t"
-                    label="BCC"
+                    :label="copy.bcc"
                   /></div
               ></template>
               <div v-else class="event-fields">
@@ -1289,11 +1214,10 @@ onUnmounted(() => {
                     id="compose-required-attendees"
                     v-model="draft.payload.requiredAttendees"
                     :label="eventLabels.requiredAttendees!"
-                    :t="t"
                     :readonly="!!draft.rows.length && !draft.recipientColumn"
                     :placeholder="
                       draft.rows.length
-                        ? t('请先确认收件人列', 'Confirm recipient column')
+                        ? copy.confirmRecipientColumn
                         : undefined
                     "
                   />
@@ -1306,7 +1230,7 @@ onUnmounted(() => {
                     "
                     aria-controls="compose-optional-attendees-row"
                     @click="optionalAttendeesOpen = !optionalAttendeesOpen"
-                    >{{ t("可选", "Optional") }}</Button
+                    >{{ copy.optional }}</Button
                   >
                 </div>
                 <div
@@ -1328,28 +1252,25 @@ onUnmounted(() => {
                     id="compose-optional-attendees"
                     v-model="draft.payload.optionalAttendees"
                     :label="eventLabels.optionalAttendees!"
-                    :t="t"
                   />
                 </div>
                 <div class="event-field event-range">
-                  <span>{{ t("开始时间", "Start") }}</span
+                  <span>{{ copy.start }}</span
                   ><FieldInput
                     :ref="(instance) => setPayloadInput('start', instance)"
                     data-payload-field="start"
                     v-model="draft.payload.start"
-                    :t="t"
                     :aria-label="eventLabels.start"
                     :type="
                       draft.payload.start?.includes('{')
                         ? 'text'
                         : 'datetime-local'
                     "
-                  /><span>{{ t("结束时间", "End") }}</span
+                  /><span>{{ copy.end }}</span
                   ><FieldInput
                     :ref="(instance) => setPayloadInput('end', instance)"
                     data-payload-field="end"
                     v-model="draft.payload.end"
-                    :t="t"
                     :aria-label="eventLabels.end"
                     :type="
                       draft.payload.end?.includes('{')
@@ -1364,22 +1285,18 @@ onUnmounted(() => {
                     :ref="(instance) => setPayloadInput('location', instance)"
                     data-payload-field="location"
                     v-model="draft.payload.location"
-                    :t="t"
                     :aria-label="eventLabels.location"
                     type="text"
                 /></label>
               </div>
               <div class="compose-field">
-                <label for="compose-subject">{{ t("主题", "Subject") }}</label
+                <label for="compose-subject">{{ copy.subject }}</label
                 ><FieldInput
                   :ref="(instance) => setPayloadInput('subject', instance)"
                   data-payload-field="subject"
                   id="compose-subject"
                   v-model="draft.payload.subject"
-                  :t="t"
-                  :placeholder="
-                    t('给草稿一个清晰的主题', 'Give this draft a clear subject')
-                  "
+                  :placeholder="copy.giveThisDraftAClearSubject"
                 />
               </div>
             </fieldset>
@@ -1389,7 +1306,6 @@ onUnmounted(() => {
             :key="editorDraft.id"
             v-model="editorDraft.payload.html"
             fill
-            :t="t"
             :dark="dark"
             :disabled="busy"
             :fields="insertFields"
@@ -1401,41 +1317,26 @@ onUnmounted(() => {
             @agent="agentOpen = true"
           />
           <div class="editor-status">
-            <span>{{
-              t("保存后可在历史中恢复", "Saved drafts are available in history")
-            }}</span
-            ><span>{{
-              savedCurrent
-                ? t("已保存", "Saved")
-                : t("有未保存编辑", "Unsaved edits")
-            }}</span>
+            <span>{{ copy.savedDraftsAreAvailableInHistory }}</span
+            ><span>{{ savedCurrent ? copy.saved : copy.unsavedEdits }}</span>
           </div>
         </Card>
-
-        <!-- <p class="execution-note"><ShieldCheck :size="14" />{{ t('保存与起草不会发送邮件。执行前需另行确认整批内容。', 'Saving and drafting never send messages. Execution requires separate batch review.') }}</p> -->
       </section>
       <div class="agent-launch-anchor">
         <Button
           variant="secondary"
           class="agent-launch"
           :disabled="busy"
-          :aria-label="
-            t('打开 OmniAgent 起草或改写', 'Open OmniAgent to draft or revise')
-          "
+          :aria-label="copy.openOmniAgentToDraftOrRevise"
           aria-keyshortcuts="Meta+K Control+K"
           @click="agentOpen = true"
         >
           <span class="agent-emblem"><Sparkles /></span>
-          <strong class="agent-launch-label">OmniAgent</strong>
+          <strong class="agent-launch-label">{{ copy.omniAgent }}</strong>
           <span class="agent-launch-details" aria-hidden="true">
             <span class="agent-launch-details-content">
-              <small>{{
-                t(
-                  "描述目标、组织内容、检查字段",
-                  "Describe goals, organize content, check fields",
-                )
-              }}</small>
-              <kbd>Command / Ctrl K</kbd>
+              <small>{{ copy.describeGoalsOrganizeContentCheckFields }}</small>
+              <kbd>{{ copy.commandCtrlK }}</kbd>
             </span>
           </span>
         </Button>
@@ -1445,40 +1346,33 @@ onUnmounted(() => {
       <div class="agent-heading">
         <span class="agent-emblem"><Sparkles :size="22" /></span>
         <div>
-          <h2>OmniMail Agent</h2>
-          <p>{{ t("你的邮件协作搭档", "Your drafting partner") }}</p>
+          <h2>{{ copy.omniMailAgent }}</h2>
+          <p>{{ copy.yourDraftingPartner }}</p>
         </div>
       </div>
       <div class="agent-context">
         <strong>{{ draft.title }}</strong
         ><span
-          >{{
-            draft.kind === "email"
-              ? t("邮件草稿", "Email draft")
-              : t("日程草稿", "Event draft")
-          }}
+          >{{ draft.kind === "email" ? copy.emailDraft : copy.eventDraft }}
           ·
           {{
             draft.rows.length
-              ? `${draft.rows.length} ${t("行名单", "rows")}`
-              : t("单次任务", "Single task")
+              ? `${draft.rows.length} ${copy.rows}`
+              : copy.singleTask
           }}</span
         ><span
-          >{{ placeholders.length }} {{ t("个动态字段", "dynamic fields") }} ·
-          {{ t("执行需人工确认", "Human approval required") }}</span
+          >{{ placeholders.length }} {{ copy.dynamicFields }} ·
+          {{ copy.humanApprovalRequired }}</span
         >
       </div>
       <div class="agent-chat">
-        <!-- <div v-if="!draft.conversation.length" class="agent-message">
-                    {{ t('从空白开始也没关系。告诉我你的目的，我会准备一版建议供你审核。', 'Starting from scratch is fine. Describe your goal for a draft you can review.') }}
-                </div> -->
         <div
           v-for="(entry, index) in draft.conversation"
           :key="index"
           class="agent-message"
           :class="{ user: entry.role === 'user' }"
         >
-          <small>{{ entry.role === "user" ? t("你", "You") : "Agent" }}</small>
+          <small>{{ entry.role === "user" ? copy.you : copy.agentName }}</small>
           <p>{{ entry.content }}</p>
         </div>
       </div>
@@ -1488,19 +1382,17 @@ onUnmounted(() => {
           size="xs"
           :disabled="busy"
           @click="quickAction('draft')"
-          >{{ t("帮我起草", "Draft with me") }}</Button
+          >{{ copy.draftWithMe }}</Button
         ><Button
           variant="outline"
           size="xs"
           :disabled="busy"
           @click="quickAction('check')"
-          >{{ t("检查合并", "Check merge") }}</Button
+          >{{ copy.checkMerge }}</Button
         >
       </div>
       <Button variant="secondary" :disabled="busy" @click="agentOpen = true"
-        ><Sparkles :size="16" />{{
-          t("打开对话与上传文件", "Open chat & attach files")
-        }}</Button
+        ><Sparkles :size="16" />{{ copy.openChatAttachFiles }}</Button
       >
 
       <Button
@@ -1508,44 +1400,34 @@ onUnmounted(() => {
         variant="secondary"
         :disabled="busy"
         @click="agentOpen = true"
-        >{{ t("查看待应用建议", "Review pending suggestion") }}</Button
+        >{{ copy.reviewPendingSuggestion }}</Button
       >
       <p class="agent-boundary">
-        {{
-          t(
-            "名单只发送列名与脱敏样本；对话及当前正文会交给你配置的 AI。",
-            "Only column names and redacted samples are shared. Conversation and current content go to your configured AI.",
-          )
-        }}
+        {{ copy.aiPrivacyHint }}
       </p>
       <div class="task-inspector">
-        <h3>{{ t("任务上下文", "Task context") }}</h3>
+        <h3>{{ copy.taskContext }}</h3>
         <dl>
           <div>
-            <dt>{{ t("模板", "Template") }}</dt>
+            <dt>{{ copy.template }}</dt>
             <dd>
               {{
                 templates.find((item) => item.id === draft.templateId)?.name ||
-                t("未使用", "None")
+                copy.none
               }}
             </dd>
           </div>
           <div>
-            <dt>{{ t("待完善项", "Items to complete") }}</dt>
+            <dt>{{ copy.itemsToComplete }}</dt>
             <dd>{{ issues.length }}</dd>
           </div>
           <div>
-            <dt>{{ t("保存状态", "Save status") }}</dt>
+            <dt>{{ copy.saveStatus }}</dt>
             <dd>
-              {{
-                savedCurrent
-                  ? t("服务器草稿", "Server draft")
-                  : t("未保存编辑", "Unsaved")
-              }}
+              {{ savedCurrent ? copy.serverDraft : copy.unsaved }}
             </dd>
           </div>
         </dl>
-        <!-- <Button variant="link" size="sm" @click="emit('settings')">{{ t('管理 AI 服务', 'Manage AI services') }}</Button> -->
       </div>
     </aside>
     <AgentDialog
@@ -1559,7 +1441,6 @@ onUnmounted(() => {
       v-model:attachments="draft.attachments"
       :conversation="draft.conversation"
       :proposal="draft.proposal"
-      :t="t"
       @request="ask"
       @cancel="agentController?.abort()"
       @invalidate="draft.proposal = undefined"
@@ -1572,27 +1453,20 @@ onUnmounted(() => {
     <Dialog v-model:open="deleteDraftOpen">
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{{
-            t("删除工作草稿？", "Delete working draft?")
-          }}</DialogTitle>
+          <DialogTitle>{{ copy.deleteWorkingDraft2 }}</DialogTitle>
           <DialogDescription>
-            {{
-              t(
-                `将移除「${pendingDeleteDraft?.title || ""}」及其未保存的编辑，删除后无法恢复。已保存的服务器草稿仍可在历史中查看。`,
-                `Removes “${pendingDeleteDraft?.title || ""}” and its unsaved edits. This cannot be undone. Saved server drafts remain available in History.`,
-              )
-            }}
+            {{ deleteDraftDescriptionLabel(pendingDeleteDraft?.title || "") }}
           </DialogDescription>
         </DialogHeader>
         <div class="actions">
           <Button variant="outline" @click="deleteDraftOpen = false">{{
-            t("取消", "Cancel")
+            copy.cancel
           }}</Button>
           <Button
             variant="destructive"
             :disabled="busy"
             @click="deleteWorkingDraft"
-            >{{ t("删除草稿", "Delete draft") }}</Button
+            >{{ copy.deleteDraft }}</Button
           >
         </div>
       </DialogContent>
@@ -1600,43 +1474,33 @@ onUnmounted(() => {
     <Dialog v-model:open="applyTemplateOpen"
       ><DialogContent
         ><DialogHeader
-          ><DialogTitle>{{ t("应用模板？", "Apply template?") }}</DialogTitle
+          ><DialogTitle>{{ copy.applyTemplate }}</DialogTitle
           ><DialogDescription>{{
-            t(
-              "仅替换当前主题和正文，收件人、日程信息与名单保持不变。现有正文将被覆盖。",
-              "Replaces subject and body only. Recipients, event details and imported data stay unchanged. Existing content will be overwritten.",
-            )
+            copy.applyTemplateWarning
           }}</DialogDescription></DialogHeader
         >
         <div class="actions">
           <Button variant="outline" @click="applyTemplateOpen = false">{{
-            t("保留当前内容", "Keep content")
+            copy.keepContent
           }}</Button
-          ><Button @click="applyTemplate">{{
-            t("确认应用", "Apply template")
-          }}</Button>
+          ><Button @click="applyTemplate">{{ copy.applyTemplate2 }}</Button>
         </div></DialogContent
       ></Dialog
     >
     <Dialog v-model:open="clearOpen"
       ><DialogContent
         ><DialogHeader
-          ><DialogTitle>{{
-            t("清除名单？", "Clear imported data?")
-          }}</DialogTitle
+          ><DialogTitle>{{ copy.clearImportedData }}</DialogTitle
           ><DialogDescription>{{
-            t(
-              "恢复手动收件人；正文不会改变，请处理未替换的字段。",
-              "Restores manual recipients. Content is unchanged; handle any unresolved fields.",
-            )
+            copy.clearListWarning
           }}</DialogDescription></DialogHeader
         >
         <div class="actions">
           <Button variant="outline" @click="clearOpen = false">{{
-            t("返回", "Back")
+            copy.back
           }}</Button
           ><Button variant="destructive" @click="clearData">{{
-            t("清除名单", "Clear list")
+            copy.clearList
           }}</Button>
         </div></DialogContent
       ></Dialog

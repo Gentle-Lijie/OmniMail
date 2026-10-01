@@ -1,3 +1,4 @@
+import { serverMessage } from "./i18n.js";
 import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
@@ -11,7 +12,9 @@ export const id = () => randomBytes(16).toString("hex");
 export const hash = (s: string) => createHash("sha256").update(s).digest("hex");
 export function createStore(path: string, secret: string) {
   if (!secret || secret.length < 32)
-    throw new Error("APP_SECRET must contain at least 32 characters");
+    throw new Error(
+      serverMessage("store.aPPSECRETMustContainAtLeast32Characters"),
+    );
   if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
   const db = new Database(path);
   db.pragma("journal_mode = WAL");

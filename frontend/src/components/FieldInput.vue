@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useMessages } from "@/lib/i18n";
 import {
   computed,
   nextTick,
@@ -16,12 +17,13 @@ import {
   setFieldEditorSelection,
 } from "@/lib/fieldEditor";
 
+const copy = useMessages("fieldInput");
 defineOptions({ inheritAttrs: false });
+
 const props = defineProps<{
   type?: string;
   disabled?: boolean;
   readonly?: boolean;
-  t: (zh: string, en: string) => string;
 }>();
 const model = defineModel<string>({ required: true });
 const editor = ref<HTMLElement>();
@@ -32,7 +34,7 @@ const isDateInput = computed(
 const html = computed(() =>
   fieldEditorHtml(
     model.value || "",
-    props.t("移除", "Remove"),
+    copy.value.remove,
     !!props.readonly || !!props.disabled,
   ),
 );
