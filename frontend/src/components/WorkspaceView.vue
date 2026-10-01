@@ -20,6 +20,7 @@ import {
   ChevronLeft,
   ChevronRight,
   LoaderCircle,
+  Trash2,
 } from "lucide-vue-next";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
@@ -161,6 +162,16 @@ const agentOpen = ref(false),
   applyTemplateOpen = ref(false),
   clearOpen = ref(false);
 const busy = computed(() => !!activity.value || props.locked);
+const pendingDeleteId = ref<string>();
+const pendingDeleteDraft = computed(() =>
+  drafts.value.find((item) => item.id === pendingDeleteId.value),
+);
+const deleteDraftOpen = computed({
+  get: () => !!pendingDeleteDraft.value,
+  set: (open: boolean) => {
+    if (!open) pendingDeleteId.value = undefined;
+  },
+});
 useFeedback({
   error,
   success,
@@ -425,6 +436,24 @@ function addDraft(kind: Kind = "email", startAgent = true) {
 }
 function changeKind(kind: string | number) {
   if (kind !== draft.value.kind) addDraft(kind as Kind, kind === "email");
+}
+function deleteWorkingDraft() {
+  if (busy.value || !pendingDeleteDraft.value) return;
+  const removed = pendingDeleteDraft.value;
+  const index = drafts.value.findIndex((item) => item.id === removed.id);
+  const remaining = drafts.value.filter((item) => item.id !== removed.id);
+  if (!remaining.length) {
+    remaining.push(blank(removed.kind));
+    search.value = "";
+  }
+  if (activeId.value === removed.id) {
+    agentOpen.value = false;
+    applyTemplateOpen.value = false;
+    clearOpen.value = false;
+    activeId.value = remaining[Math.min(index, remaining.length - 1)]!.id;
+  }
+  drafts.value = remaining;
+  pendingDeleteId.value = undefined;
 }
 function requestTemplate() {
   if (selectedTemplate.value === "none") {
@@ -794,32 +823,44 @@ onUnmounted(() => {
         <p class="section-label">
           {{ t("当前工作草稿", "Working drafts") }} · {{ drafts.length }}
         </p>
-        <Button
-          v-for="item in visibleDrafts"
-          :key="item.id"
-          variant="ghost"
-          class="task-entry"
-          :class="{ selected: item.id === activeId }"
-          :disabled="busy"
-          @click="activeId = item.id"
-          ><span class="row between"
-            ><strong>{{ item.title }}</strong
-            ><Mail v-if="item.kind === 'email'" :size="14" /><CalendarDays
-              v-else
-              :size="14" /></span
-          ><span class="muted text-xs">{{
-            item.payload.subject || t("等待起草", "Ready to draft")
-          }}</span
-          ><span class="task-state"
-            ><span class="status-dot"></span
-            >{{ item.saved ? t("已保存", "Saved") : t("编辑中", "Editing")
-            }}<span>{{
-              item.rows.length
-                ? `${item.rows.length} ${t("行名单", "rows")}`
-                : t("单次任务", "Single task")
-            }}</span></span
-          ></Button
-        >
+        <div v-for="item in visibleDrafts" :key="item.id" class="working-draft">
+          <Button
+            variant="ghost"
+            class="task-entry"
+            :class="{ selected: item.id === activeId }"
+            :disabled="busy"
+            @click="activeId = item.id"
+            ><span class="row between"
+              ><strong>{{ item.title }}</strong
+              ><Mail v-if="item.kind === 'email'" :size="14" /><CalendarDays
+                v-else
+                :size="14" /></span
+            ><span class="muted text-xs">{{
+              item.payload.subject || t("等待起草", "Ready to draft")
+            }}</span
+            ><span class="task-state"
+              ><span class="status-dot"></span
+              >{{ item.saved ? t("已保存", "Saved") : t("编辑中", "Editing")
+              }}<span>{{
+                item.rows.length
+                  ? `${item.rows.length} ${t("行名单", "rows")}`
+                  : t("单次任务", "Single task")
+              }}</span></span
+            ></Button
+          >
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            class="draft-delete"
+            :disabled="busy"
+            :aria-label="
+              t('删除工作草稿', 'Delete working draft') + ': ' + item.title
+            "
+            :title="t('删除工作草稿', 'Delete working draft')"
+            @click="pendingDeleteId = item.id"
+            ><Trash2 :size="14"
+          /></Button>
+        </div>
         <div v-if="!visibleDrafts.length" class="empty">
           {{ t("没有匹配的草稿", "No matching drafts") }}
         </div>
@@ -873,7 +914,21 @@ onUnmounted(() => {
         /></Button>
       </div>
       <div class="compose-heading">
-        <div>
+        <div class="compose-identity">
+          <Tabs
+            class="compose-kind-tabs"
+            :model-value="draft.kind"
+            @update:model-value="changeKind"
+          >
+            <TabsList>
+              <TabsTrigger value="email" :disabled="busy">{{
+                t("邮件", "Email")
+              }}</TabsTrigger>
+              <TabsTrigger value="event" :disabled="busy">{{
+                t("日程", "Event")
+              }}</TabsTrigger>
+            </TabsList>
+          </Tabs>
           <Input
             v-model="draft.title"
             class="draft-title"
@@ -881,16 +936,20 @@ onUnmounted(() => {
             :disabled="busy"
           />
         </div>
-        <Tabs :model-value="draft.kind" @update:model-value="changeKind"
-          ><TabsList
-            ><TabsTrigger value="email" :disabled="busy">{{
-              t("邮件", "Email")
-            }}</TabsTrigger
-            ><TabsTrigger value="event" :disabled="busy">{{
-              t("日程", "Event")
-            }}</TabsTrigger></TabsList
-          ></Tabs
-        >
+        <div class="compose-actions">
+          <Button variant="outline" :disabled="busy" @click="save()">
+            <Save />{{ t("保存草稿", "Save draft") }}
+          </Button>
+          <Button
+            variant="ghost"
+            :disabled="busy"
+            @click="emit('template', draft.kind, { ...draft.payload })"
+            >{{ t("保存为模板", "Save as template") }}</Button
+          >
+          <Button :disabled="busy" @click="save(true)">
+            <Eye />{{ t("审核并确认", "Review & confirm") }}
+          </Button>
+        </div>
       </div>
 
       <Card class="merge-panel"
@@ -1297,21 +1356,7 @@ onUnmounted(() => {
           }}</span>
         </div>
       </Card>
-      <div class="compose-actions">
-        <Button variant="outline" :disabled="busy" @click="save()"
-          ><Save />{{ t("保存草稿", "Save draft") }}</Button
-        >
-        <div class="row">
-          <Button
-            variant="ghost"
-            :disabled="busy"
-            @click="emit('template', draft.kind, { ...draft.payload })"
-            >{{ t("保存为模板", "Save as template") }}</Button
-          ><Button :disabled="busy" @click="save(true)"
-            ><Eye />{{ t("审核并确认", "Review & confirm") }}</Button
-          >
-        </div>
-      </div>
+
       <!-- <p class="execution-note"><ShieldCheck :size="14" />{{ t('保存与起草不会发送邮件。执行前需另行确认整批内容。', 'Saving and drafting never send messages. Execution requires separate batch review.') }}</p> -->
       <div class="agent-launch-anchor">
         <Button
@@ -1465,6 +1510,34 @@ onUnmounted(() => {
         emit('settings');
       "
     />
+    <Dialog v-model:open="deleteDraftOpen">
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{{
+            t("删除工作草稿？", "Delete working draft?")
+          }}</DialogTitle>
+          <DialogDescription>
+            {{
+              t(
+                `将移除「${pendingDeleteDraft?.title || ""}」及其未保存的编辑，删除后无法恢复。已保存的服务器草稿仍可在历史中查看。`,
+                `Removes “${pendingDeleteDraft?.title || ""}” and its unsaved edits. This cannot be undone. Saved server drafts remain available in History.`,
+              )
+            }}
+          </DialogDescription>
+        </DialogHeader>
+        <div class="actions">
+          <Button variant="outline" @click="deleteDraftOpen = false">{{
+            t("取消", "Cancel")
+          }}</Button>
+          <Button
+            variant="destructive"
+            :disabled="busy"
+            @click="deleteWorkingDraft"
+            >{{ t("删除草稿", "Delete draft") }}</Button
+          >
+        </div>
+      </DialogContent>
+    </Dialog>
     <Dialog v-model:open="applyTemplateOpen"
       ><DialogContent
         ><DialogHeader

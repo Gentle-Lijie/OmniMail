@@ -557,6 +557,23 @@ kbd {
   border-color: var(--border);
   box-shadow: 0 2px 6px #25324905;
 }
+.working-draft {
+  position: relative;
+}
+.working-draft .task-entry > .row {
+  padding-right: 26px;
+}
+.draft-delete {
+  position: absolute;
+  top: 8px;
+  right: 6px;
+  width: 28px;
+  height: 28px;
+  color: var(--muted-foreground);
+}
+.draft-delete:hover {
+  color: var(--color-destructive);
+}
 .task-state {
   display: flex;
   align-items: center;
@@ -601,16 +618,23 @@ kbd {
 .compose-heading {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
 }
-.compose-heading > div:first-child {
+.compose-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   min-width: 0;
-  flex: 1;
+  flex: 1 1 280px;
 }
-.compose-heading p {
-  font-size: 11px;
-  margin-top: 6px;
+.compose-kind-tabs {
+  flex-shrink: 0;
+}
+.compose-identity .draft-title {
+  flex: 1;
+  min-width: 0;
 }
 .draft-title {
   font-size: 21px;
@@ -924,9 +948,10 @@ kbd {
 .compose-actions {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  justify-content: flex-end;
+  gap: 8px;
   flex-wrap: wrap;
+  margin-left: auto;
 }
 .execution-note {
   display: flex;
@@ -1460,9 +1485,9 @@ kbd {
     padding: 18px 14px;
     gap: 15px;
   }
-  .compose-heading {
-    flex-wrap: wrap;
-    align-items: flex-start;
+  .compose-identity {
+    flex-basis: 100%;
+    gap: 8px;
   }
   .compose-heading .draft-title {
     font-size: 18px;
@@ -1471,9 +1496,6 @@ kbd {
     padding-left: 7px;
     padding-right: 7px;
     font-size: 11px;
-  }
-  .compose-heading p {
-    font-size: 10px;
   }
   .compose-card-header {
     flex-wrap: wrap;
@@ -1521,10 +1543,8 @@ kbd {
     font-size: 10px;
   }
   .compose-actions {
-    align-items: flex-start;
-  }
-  .compose-actions > .row {
-    gap: 3px;
+    width: 100%;
+    gap: 6px;
   }
   .compose-actions button {
     font-size: 11px;
