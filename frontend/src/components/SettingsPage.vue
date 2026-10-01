@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import AIProviderSettings from "@/components/AIProviderSettings.vue";
 import { api, idPath, type Settings, type Key } from "@/lib/api";
+import { useFeedback } from "@/lib/notifications";
 const props = defineProps<{
   t: (zh: string, en: string) => string;
   language: string;
@@ -31,6 +32,21 @@ const mailUrl = ref("");
 const eventUrl = ref("");
 const newPasskey = ref("");
 const language = ref(props.language);
+useFeedback({
+  error,
+  success,
+  pending: () =>
+    loading.value
+      ? props.t("正在加载设置…", "Loading settings…")
+      : busy.value
+        ? props.t("正在更新设置…", "Updating settings…")
+        : "",
+  errorAction: () => ({
+    label: props.t("重试", "Retry"),
+    run: () => run(load),
+    disabled: () => busy.value,
+  }),
+});
 async function run(fn: () => Promise<void>) {
   if (busy.value) return;
   busy.value = true;
@@ -115,18 +131,7 @@ onMounted(() => run(load));
         }}
       </p>
     </div>
-    <div v-if="loading" class="notice mb-4" role="status">
-      {{ t("加载中…", "Loading…") }}
-    </div>
-    <div v-if="error" class="notice error mb-4" role="alert">
-      {{ error }}
-      <Button variant="ghost" :disabled="busy" @click="run(load)">{{
-        t("重试", "Retry")
-      }}</Button>
-    </div>
-    <div v-if="success" class="notice success mb-4" role="status">
-      {{ success }}
-    </div>
+
     <div class="workspace">
       <div class="stack">
         <Card v-if="settings" class="panel"
@@ -269,7 +274,7 @@ onMounted(() => run(load));
             }}</DialogDescription
           ></DialogHeader
         >
-        <p v-if="error" class="notice error">{{ error }}</p>
+
         <div class="actions">
           <Button variant="outline" @click="deleting = undefined">{{
             t("返回", "Back")

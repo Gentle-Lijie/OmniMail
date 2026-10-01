@@ -17,7 +17,7 @@ const props = defineProps<{
   disabled?: boolean;
   fields?: string[];
 }>();
-const emit = defineEmits<{ agent: []; failed: [] }>();
+const emit = defineEmits<{ agent: []; failed: []; ready: [] }>();
 const model = defineModel<string>({ required: true });
 let editor: TinyEditor | undefined;
 let bookmark: ReturnType<TinyEditor["selection"]["getBookmark"]> | undefined;
@@ -67,6 +67,7 @@ const init: RawEditorOptions = {
       () => (bookmark = instance.selection.getBookmark(2, true)),
     );
     instance.on("init", () => {
+      emit("ready");
       instance.addShortcut("meta+k", "OmniMail Agent", () => emit("agent"));
       instance.addShortcut("ctrl+k", "OmniMail Agent", () => emit("agent"));
     });

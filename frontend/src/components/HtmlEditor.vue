@@ -11,6 +11,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { escapeHtml, previewDocument } from "@/lib/mailMerge";
+import { useFeedback } from "@/lib/notifications";
 const RichEditor = defineAsyncComponent(() => import("./RichEditor.vue"));
 const tokenLabel = (field: string) => `{{${field}}}`;
 const props = defineProps<{
@@ -27,6 +28,20 @@ const tab = ref("rich");
 const rich = ref<InstanceType<typeof RichEditor>>();
 const source = ref<HTMLElement>();
 const richFailed = ref(false);
+const richReady = ref(false);
+useFeedback({
+  pending: () =>
+    !richReady.value && !richFailed.value
+      ? props.t("正在加载富文本编辑器…", "Loading rich text editor…")
+      : "",
+  warning: () =>
+    richFailed.value
+      ? props.t(
+          "富文本编辑器加载失败，已切换到 Raw HTML。",
+          "Rich text failed to load. Switched to Raw HTML.",
+        )
+      : "",
+});
 let start = 0,
   end = 0;
 const highlighted = computed(
@@ -101,14 +116,7 @@ onErrorCaptured(() => {
         >{{ tokenLabel(field) }}<Plus :size="12"
       /></Button>
     </div>
-    <p v-if="richFailed" class="notice error">
-      {{
-        t(
-          "富文本编辑器加载失败，请使用 Raw HTML。",
-          "Rich text could not load. Use Raw HTML.",
-        )
-      }}
-    </p>
+
     <div v-show="tab === 'rich'" class="rich-surface">
       <Suspense
         ><RichEditor
@@ -118,16 +126,13 @@ onErrorCaptured(() => {
           :fields="fields"
           :disabled="disabled"
           @agent="emit('agent')"
+          @ready="richReady = true"
           @failed="
             richFailed = true;
             tab = 'source';
-          "
-        /><template #fallback
-          ><div class="empty" role="status">
-            {{ t("正在加载编辑器…", "Loading editor…") }}
-          </div></template
-        ></Suspense
-      >
+          " /><template #fallback
+          ><div class="empty" aria-busy="true"></div></template
+      ></Suspense>
     </div>
     <div v-show="tab === 'source'" ref="source" class="source-surface">
       <pre aria-hidden="true" v-html="highlighted"></pre>

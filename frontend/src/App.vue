@@ -36,6 +36,8 @@ import TaskContent from "@/components/TaskContent.vue";
 import AppSelect from "@/components/ui/AppSelect.vue";
 import AppCheckbox from "@/components/ui/AppCheckbox.vue";
 import HtmlEditor from "@/components/HtmlEditor.vue";
+import NotificationCenter from "@/components/NotificationCenter.vue";
+import { useFeedback } from "@/lib/notifications";
 import { fieldsIn } from "@/lib/mailMerge";
 import SettingsPage from "@/components/SettingsPage.vue";
 import {
@@ -96,6 +98,26 @@ const error = ref("");
 const success = ref("");
 const name = ref("");
 const setupToken = ref("");
+useFeedback({
+  error,
+  success,
+  pending: () =>
+    loading.value
+      ? t("正在连接并加载工作区…", "Connecting and loading workspace…")
+      : "",
+  errorAction: () => ({
+    label: t("重试", "Retry"),
+    run: () => (auth.value?.authenticated ? run(loadPage) : status()),
+    disabled: () => busy.value || loading.value,
+  }),
+  warning: () =>
+    page.value === "mcp"
+      ? t(
+          "MCP 的邮件和日程调用不需要人工确认，请只向可信客户端授权。",
+          "MCP email and event calls bypass human confirmation. Authorize trusted clients only.",
+        )
+      : "",
+});
 async function run(fn: () => Promise<void>) {
   if (busy.value) return;
   busy.value = true;
@@ -170,6 +192,7 @@ async function loadPage() {
 }
 watch(page, () => {
   detail.value = undefined;
+  detailOpen.value = false;
   oneTimeKey.value = "";
   error.value = "";
   success.value = "";
@@ -194,6 +217,7 @@ watch(reviewOpen, () => {
   humanConfirmed.value = false;
 });
 const detail = ref<Task>();
+const detailOpen = ref(false);
 const filter = ref("all");
 const templateFilter = ref("all");
 const sourceFilter = ref("all");
@@ -278,6 +302,7 @@ async function confirm() {
     detail.value = await api<Task>("/tasks/" + idPath(review.value.id));
     reviewOpen.value = false;
     page.value = "history";
+    detailOpen.value = true;
     success.value = t(
       "已请求排队；接口接收不等于投递成功。",
       "Queue requested; acceptance does not mean delivery.",
@@ -289,6 +314,7 @@ async function confirm() {
 async function openTask(x: Task) {
   await run(async () => {
     detail.value = await api<Task>("/tasks/" + idPath(x.id));
+    detailOpen.value = true;
   });
 }
 async function cancelTask(x: Task) {
@@ -355,6 +381,15 @@ async function remove() {
 }
 const keyName = ref("");
 const oneTimeKey = ref("");
+useFeedback({
+  warning: () =>
+    oneTimeKey.value
+      ? t(
+          "API 密钥仅显示一次，请安全保存。不要分享给不可信客户端。",
+          "The API key is shown once. Store it securely and share only with trusted clients.",
+        )
+      : "",
+});
 const endpoint = location.origin + "/mcp";
 const mcpConfig = computed(() =>
   JSON.stringify(
@@ -398,6 +433,7 @@ const placeholderHint = computed(() =>
 );
 </script>
 <template>
+  <NotificationCenter :t="t" />
   <div v-if="!auth?.authenticated" class="auth page-enter">
     <div class="brand mb-8"><ArrowUpRight />OmniMail</div>
     <Card class="panel"
@@ -422,8 +458,7 @@ const placeholderHint = computed(() =>
         @click="language = language === 'en' ? 'zh' : 'en'"
         >中文 / English</Button
       >
-      <p v-if="loading" role="status">{{ t("正在连接…", "Connecting…") }}</p>
-      <div v-if="error" class="notice error" role="alert">{{ error }}</div>
+
       <Button
         v-if="!auth"
         class="mt-4"
@@ -539,18 +574,6 @@ const placeholderHint = computed(() =>
         </div>
       </header>
       <div class="content" :class="{ 'desk-content': page === 'dashboard' }">
-        <div v-if="error" class="notice error mb-4" role="alert">
-          {{ error }}
-          <Button variant="ghost" :disabled="busy" @click="run(loadPage)">{{
-            t("重试", "Retry")
-          }}</Button>
-        </div>
-        <div v-if="success" class="notice success mb-4" role="status">
-          {{ success }}
-        </div>
-        <div v-if="loading" class="notice mb-4" role="status">
-          {{ t("正在加载…", "Loading…") }}
-        </div>
         <WorkspaceView
           v-show="page === 'dashboard'"
           :templates="templates"
@@ -657,83 +680,6 @@ const placeholderHint = computed(() =>
                 t("查看详情", "Details")
               }}</Button>
             </div></Card
-          ><Card v-if="detail" class="panel mt-6"
-            ><div class="row between">
-              <h2>{{ detail.summary || detail.id }}</h2>
-              <span class="badge">{{ stateLabel(detail.status) }}</span>
-            </div>
-            <p v-if="detail.template" class="muted">
-              {{ t("使用模板", "Template") }}: {{ detail.template.name }} · v{{
-                detail.template.version
-              }}
-            </p>
-            <TaskContent :key="detail.id" :task="detail" :t="t" />
-            <p>
-              {{ t("接口调用数", "Interface calls") }}: {{ detail.total }} ·
-              {{ t("已接收", "Accepted") }} {{ detail.accepted }} ·
-              {{ t("失败", "Failed") }}
-              {{ detail.failed }}
-            </p>
-            <div class="merge-table-scroll">
-              <table class="data-table task-results">
-                <caption class="sr-only">
-                  {{
-                    t("逐条执行结果", "Per-item results")
-                  }}
-                </caption>
-                <thead>
-                  <tr>
-                    <th>
-                      {{ t("收件人 / 参会者", "Recipients / attendees") }}
-                    </th>
-                    <th>{{ t("状态", "Status") }}</th>
-                    <th>{{ t("结果说明", "Result details") }}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="item in detail.items" :key="item.id">
-                    <td>
-                      {{
-                        item.payload.to ||
-                        item.payload.requiredAttendees ||
-                        t("无", "None")
-                      }}
-                    </td>
-                    <td>
-                      <span class="badge">{{ stateLabel(item.status) }}</span>
-                    </td>
-                    <td>
-                      {{ item.error || t("无附加错误", "No additional error") }}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            <div v-for="(x, i) in detail.conversation" :key="i" class="bubble">
-              {{ x.role }}: {{ x.content }}
-            </div>
-            <div class="actions">
-              <Button
-                variant="outline"
-                :disabled="busy"
-                @click="openTask(detail)"
-                >{{ t("刷新", "Refresh") }}</Button
-              ><Button
-                v-if="detail.status === 'draft'"
-                :disabled="busy"
-                @click="
-                  review = detail;
-                  reviewOpen = true;
-                "
-                >{{ t("预览并确认", "Review & confirm") }}</Button
-              ><Button
-                v-if="['draft', 'queued', 'running'].includes(detail.status)"
-                variant="outline"
-                :disabled="busy"
-                @click="cancelTask(detail)"
-                >{{ t("取消任务", "Cancel task") }}</Button
-              >
-            </div></Card
           >
         </section>
         <section v-if="page === 'templates'" class="page-enter">
@@ -802,14 +748,7 @@ const placeholderHint = computed(() =>
               }}
             </p>
           </div>
-          <div class="notice mb-6">
-            {{
-              t(
-                "注意：MCP 的 send_email / create_event 使用 Bearer API key，不需要人工确认。请只向可信客户端授权。",
-                "Warning: MCP send_email / create_event use Bearer API keys without human confirmation. Authorize trusted clients only.",
-              )
-            }}
-          </div>
+
           <div class="workspace">
             <Card class="panel"
               ><h2 class="icon-label">
@@ -823,13 +762,8 @@ const placeholderHint = computed(() =>
                   t("创建密钥", "Create key")
                 }}</Button>
               </form>
-              <div v-if="oneTimeKey" class="notice mt-4">
-                <strong>{{
-                  t(
-                    "仅显示一次，请安全保存。",
-                    "Shown once. Store it securely.",
-                  )
-                }}</strong>
+              <div v-if="oneTimeKey" class="secret-key-panel mt-4">
+                <strong>{{ t("新 API 密钥", "New API key") }}</strong>
                 <pre>{{ oneTimeKey }}</pre>
                 <Button
                   variant="outline"
@@ -892,6 +826,98 @@ const placeholderHint = computed(() =>
       </div>
     </main>
   </div>
+  <Dialog v-model:open="detailOpen"
+    ><DialogContent class="max-h-[90dvh] overflow-y-auto sm:max-w-2xl"
+      ><DialogHeader
+        ><DialogTitle>{{
+          detail?.summary || detail?.id || t("执行记录详情", "Task details")
+        }}</DialogTitle
+        ><DialogDescription>{{
+          t(
+            "接口接收不等于实际发送成功。不确定状态请人工核实，避免重复发送。",
+            "Accepted does not mean delivered. Verify uncertain outcomes before retrying.",
+          )
+        }}</DialogDescription></DialogHeader
+      ><template v-if="detail"
+        ><div class="row between">
+          <span class="badge">{{ stateLabel(detail.status) }}</span>
+          <span class="muted text-xs">{{ formatDate(detail.createdAt) }}</span>
+        </div>
+        <p v-if="detail.template" class="muted">
+          {{ t("使用模板", "Template") }}: {{ detail.template.name }} · v{{
+            detail.template.version
+          }}
+        </p>
+        <TaskContent :key="detail.id" :task="detail" :t="t" />
+        <p>
+          {{ t("接口调用数", "Interface calls") }}: {{ detail.total }} ·
+          {{ t("已接收", "Accepted") }} {{ detail.accepted }} ·
+          {{ t("失败", "Failed") }}
+          {{ detail.failed }}
+        </p>
+        <div class="merge-table-scroll">
+          <table class="data-table task-results">
+            <caption class="sr-only">
+              {{
+                t("逐条执行结果", "Per-item results")
+              }}
+            </caption>
+            <thead>
+              <tr>
+                <th>
+                  {{ t("收件人 / 参会者", "Recipients / attendees") }}
+                </th>
+                <th>{{ t("状态", "Status") }}</th>
+                <th>{{ t("结果说明", "Result details") }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="item in detail.items" :key="item.id">
+                <td>
+                  {{
+                    item.payload.to ||
+                    item.payload.requiredAttendees ||
+                    t("无", "None")
+                  }}
+                </td>
+                <td>
+                  <span class="badge">{{ stateLabel(item.status) }}</span>
+                </td>
+                <td>
+                  {{ item.error || t("无附加错误", "No additional error") }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-for="(x, i) in detail.conversation" :key="i" class="bubble">
+          {{ x.role }}: {{ x.content }}
+        </div>
+        <div class="actions">
+          <Button
+            variant="outline"
+            :disabled="busy"
+            @click="openTask(detail)"
+            >{{ t("刷新", "Refresh") }}</Button
+          ><Button
+            v-if="detail.status === 'draft'"
+            :disabled="busy"
+            @click="
+              review = detail;
+              reviewOpen = true;
+            "
+            >{{ t("预览并确认", "Review & confirm") }}</Button
+          ><Button
+            v-if="['draft', 'queued', 'running'].includes(detail.status)"
+            variant="outline"
+            :disabled="busy"
+            @click="cancelTask(detail)"
+            >{{ t("取消任务", "Cancel task") }}</Button
+          >
+        </div></template
+      ></DialogContent
+    ></Dialog
+  >
   <Dialog v-model:open="reviewOpen"
     ><DialogContent class="max-h-[90dvh] overflow-y-auto sm:max-w-2xl"
       ><DialogHeader
@@ -929,7 +955,7 @@ const placeholderHint = computed(() =>
             )
           }}</span></label
         >
-        <div v-if="error" class="notice error" role="alert">{{ error }}</div>
+
         <div class="actions">
           <Button
             variant="outline"
@@ -988,7 +1014,7 @@ const placeholderHint = computed(() =>
             })
           "
         />
-        <div v-if="error" class="notice error">{{ error }}</div>
+
         <div class="actions">
           <Button
             v-if="templateEdit.id"
@@ -1044,7 +1070,7 @@ const placeholderHint = computed(() =>
           }}</DialogDescription
         ></DialogHeader
       >
-      <p v-if="error" class="notice error">{{ error }}</p>
+
       <div class="actions">
         <Button variant="outline" @click="deleteRequest = undefined">{{
           t("返回", "Back")

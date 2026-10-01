@@ -19,6 +19,7 @@ import {
   Trash2,
 } from "lucide-vue-next";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -29,6 +30,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { api, ApiError, idPath, type Provider } from "@/lib/api";
+import { useFeedback, notify } from "@/lib/notifications";
 
 const props = defineProps<{
   providers: Provider[];
@@ -66,6 +68,42 @@ const deleting = ref<Provider>();
 let discoveryTimer: ReturnType<typeof setTimeout> | undefined;
 let revision = 0;
 const busy = computed(() => !!activity.value);
+useFeedback({
+  error,
+  success,
+  pending: () =>
+    activity.value
+      ? props.t(
+          activity.value === "discover"
+            ? "正在自动获取模型…"
+            : activity.value === "verify"
+              ? "正在验证真实起草能力…"
+              : "正在更新 AI 配置…",
+          activity.value === "discover"
+            ? "Discovering models…"
+            : activity.value === "verify"
+              ? "Verifying drafting…"
+              : "Updating AI configuration…",
+        )
+      : "",
+});
+useFeedback({
+  error: modelError,
+  errorAction: () => ({
+    label: props.t("重新获取模型", "Retry model discovery"),
+    run: discover,
+    disabled: () => busy.value || !canDiscover(),
+  }),
+});
+watch(verification, (value) => {
+  if (value)
+    notify.success(
+      props.t(
+        "起草能力验证通过；没有发送邮件。",
+        "Drafting verified. No email sent.",
+      ),
+    );
+});
 const filteredModels = computed(() =>
   models.value.filter((model) =>
     `${model.id} ${model.name}`
@@ -451,10 +489,7 @@ onUnmounted(() => {
         ><Plus :size="16" />{{ t("添加服务", "Add service") }}</Button
       >
     </header>
-    <p v-if="error && !editing && !deleting" class="notice error" role="alert">
-      {{ error }}
-    </p>
-    <p v-if="success" class="ai-success" role="status">{{ success }}</p>
+
     <div v-if="!providers.length" class="ai-empty">
       <Server :size="28" />
       <h3>{{ t("连接你自己的 AI", "Connect your own AI") }}</h3>
@@ -621,19 +656,8 @@ onUnmounted(() => {
                 ><RefreshCw :size="13" />{{ t("刷新目录", "Refresh") }}</Button
               >
             </div>
-            <div
-              v-if="discovery === 'loading'"
-              class="ai-discovery-state"
-              role="status"
-            >
-              <LoaderCircle class="ai-spin" :size="17" />{{
-                t(
-                  "正在读取此密钥可见的模型…",
-                  "Loading models visible to this key…",
-                )
-              }}
-            </div>
-            <div v-else-if="discovery === 'idle'" class="ai-discovery-state">
+
+            <div v-if="discovery === 'idle'" class="ai-discovery-state">
               <CircleHelp :size="17" />{{
                 t(
                   "填写有效地址与密钥后，模型会自动出现在这里。",
@@ -641,17 +665,7 @@ onUnmounted(() => {
                 )
               }}
             </div>
-            <div v-if="modelError" class="ai-model-error" role="alert">
-              {{ modelError }}
-              <p>
-                {{
-                  t(
-                    "不会伪造模型列表，也不会把接口未实现误报为密钥错误。",
-                    "We never fabricate a model list or treat an unsupported endpoint as an invalid key.",
-                  )
-                }}
-              </p>
-            </div>
+
             <label v-if="models.length > 12" class="field"
               ><span>{{ t("筛选模型", "Filter models") }}</span
               ><Input
@@ -790,16 +804,16 @@ onUnmounted(() => {
                 t("验证当前配置", "Verify current configuration")
               }}</Button
             >
-            <div v-if="verification" class="ai-verified" role="status">
+            <Card v-if="verification" class="ai-verification-result">
               <Check :size="17" />
               <div>
-                <strong>{{ t("起草能力验证通过", "Drafting verified") }}</strong
+                <strong>{{ t("验证结果", "Verification result") }}</strong
                 ><small
                   >{{ verification.model }} · {{ verification.latencyMs }} ms ·
                   {{ t("无发送动作", "Nothing sent") }}</small
                 >
               </div>
-            </div>
+            </Card>
           </section>
           <label class="ai-checkbox"
             ><AppCheckbox v-model="makeDefault" />{{
@@ -810,16 +824,7 @@ onUnmounted(() => {
             }}</label
           >
         </fieldset>
-        <p v-if="error" class="notice error mt-4" role="alert">{{ error }}</p>
-        <div v-if="busy" class="ai-pending" role="status">
-          <LoaderCircle class="ai-spin" :size="16" />{{
-            activity === "discover"
-              ? t("正在自动获取模型…", "Discovering models…")
-              : activity === "verify"
-                ? t("正在验证真实起草能力…", "Verifying actual drafting…")
-                : t("正在保存…", "Saving…")
-          }}
-        </div>
+
         <footer class="ai-dialog-footer">
           <small>{{
             t(
@@ -853,7 +858,7 @@ onUnmounted(() => {
           }}</DialogDescription
         ></DialogHeader
       >
-      <p v-if="error" class="notice error">{{ error }}</p>
+
       <div class="actions">
         <Button
           variant="outline"
@@ -961,11 +966,6 @@ onUnmounted(() => {
   gap: 6px;
   align-items: center;
   flex-wrap: wrap;
-}
-.ai-success {
-  font-size: 12px;
-  color: var(--primary);
-  margin: 14px 0;
 }
 .ai-callout {
   display: flex;
@@ -1075,20 +1075,6 @@ onUnmounted(() => {
   font-size: 11px;
   min-height: 36px;
 }
-.ai-model-error {
-  border-left: 2px solid var(--muted-foreground);
-  font-size: 12px;
-  color: var(--foreground);
-  padding: 8px 12px;
-  margin-top: 14px;
-  background: var(--muted);
-  line-height: 1.8;
-}
-.ai-model-error p {
-  color: var(--muted-foreground);
-  font-size: 11px;
-  margin: 5px 0 0;
-}
 .ai-advanced {
   border-top: 1px solid var(--border);
   margin-bottom: 18px;
@@ -1137,7 +1123,7 @@ onUnmounted(() => {
   line-height: 1.85;
   margin: 12px 0 16px;
 }
-.ai-verified {
+.ai-verification-result {
   display: flex;
   align-items: center;
   gap: 9px;
@@ -1148,22 +1134,14 @@ onUnmounted(() => {
   margin-top: 14px;
   color: var(--primary);
 }
-.ai-verified strong {
+.ai-verification-result strong {
   display: block;
   font-size: 12px;
 }
-.ai-verified small {
+.ai-verification-result small {
   display: block;
   font-size: 11px;
   margin-top: 4px;
-}
-.ai-pending {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--primary);
-  padding: 14px 0;
 }
 .ai-dialog-footer {
   display: flex;

@@ -3,12 +3,14 @@ import { computed, ref } from "vue";
 import AppSelect from "./ui/AppSelect.vue";
 import { previewDocument } from "@/lib/mailMerge";
 import type { Task } from "@/lib/api";
+import { useFeedback } from "@/lib/notifications";
 const props = defineProps<{
   task: Task;
   t: (zh: string, en: string) => string;
 }>();
 const selected = ref("0");
 const item = computed(() => props.task.items?.[Number(selected.value)]);
+useFeedback({ error: () => item.value?.error || "" });
 const content = computed(() => item.value?.payload || props.task.payload);
 const options = computed(() =>
   (props.task.items || []).map((entry, index) => ({
@@ -53,7 +55,7 @@ const options = computed(() =>
         <dd>{{ content.location }}</dd>
       </div>
     </dl>
-    <p v-if="item?.error" class="notice error" role="alert">{{ item.error }}</p>
+
     <iframe
       v-if="content?.html"
       class="email-preview"
