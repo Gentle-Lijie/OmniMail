@@ -159,6 +159,7 @@ const search = ref(""),
 const agentOpen = ref(false),
   ccOpen = ref(false),
   bccOpen = ref(false),
+  optionalAttendeesOpen = ref(false),
   applyTemplateOpen = ref(false),
   clearOpen = ref(false);
 const busy = computed(() => !!activity.value || props.locked);
@@ -308,6 +309,7 @@ async function insertPayloadField(field: string) {
     return;
   if (target === "cc") ccOpen.value = true;
   if (target === "bcc") bccOpen.value = true;
+  if (target === "optionalAttendees") optionalAttendeesOpen.value = true;
   await nextTick();
   await payloadInputs.get(target)?.insert(field);
 }
@@ -402,6 +404,7 @@ watch(activeId, () => {
   selectedTemplate.value = draft.value.templateId;
   ccOpen.value = !!draft.value.payload.cc;
   bccOpen.value = !!draft.value.payload.bcc;
+  optionalAttendeesOpen.value = !!draft.value.payload.optionalAttendees;
 });
 onMounted(() => {
   document.addEventListener("keydown", shortcut);
@@ -895,493 +898,549 @@ onUnmounted(() => {
         }}
       </p>
     </aside>
-    <section class="compose-workspace">
-      <div class="mobile-draft-switch">
-        <AppSelect
-          v-model="activeId"
-          :disabled="busy"
-          :options="
-            drafts.map((item) => ({ value: item.id, label: item.title }))
-          "
-          :aria-label="t('切换草稿', 'Switch draft')"
-        /><Button
-          variant="outline"
-          size="icon"
-          :disabled="busy"
-          :aria-label="t('新建草稿', 'New draft')"
-          @click="addDraft()"
-          ><Plus
-        /></Button>
-      </div>
-      <div class="compose-heading">
-        <div class="compose-identity">
-          <Tabs
-            class="compose-kind-tabs"
-            :model-value="draft.kind"
-            @update:model-value="changeKind"
-          >
-            <TabsList>
-              <TabsTrigger value="email" :disabled="busy">{{
-                t("邮件", "Email")
-              }}</TabsTrigger>
-              <TabsTrigger value="event" :disabled="busy">{{
-                t("日程", "Event")
-              }}</TabsTrigger>
-            </TabsList>
-          </Tabs>
-          <Input
-            v-model="draft.title"
-            class="draft-title"
-            :aria-label="t('草稿名称', 'Draft name')"
+    <div class="compose-region">
+      <section class="compose-workspace">
+        <div class="mobile-draft-switch">
+          <AppSelect
+            v-model="activeId"
             :disabled="busy"
-          />
-        </div>
-        <div class="compose-actions">
-          <Button variant="outline" :disabled="busy" @click="save()">
-            <Save />{{ t("保存草稿", "Save draft") }}
-          </Button>
-          <Button
-            variant="ghost"
-            :disabled="busy"
-            @click="emit('template', draft.kind, { ...draft.payload })"
-            >{{ t("保存为模板", "Save as template") }}</Button
-          >
-          <Button :disabled="busy" @click="save(true)">
-            <Eye />{{ t("审核并确认", "Review & confirm") }}
-          </Button>
-        </div>
-      </div>
-
-      <Card class="merge-panel"
-        ><div class="merge-summary">
-          <Button
-            variant="ghost"
-            class="merge-expand"
-            :aria-expanded="draft.mergeOpen"
-            @click="draft.mergeOpen = !draft.mergeOpen"
-            ><FileSpreadsheet :size="18" /><span>
-              <ChevronDown v-if="draft.mergeOpen" :size="15" /><ChevronRight
-                v-else
-                :size="15"
-              /><strong>{{
-                draft.kind === "email"
-                  ? t("邮件合并", "Mail merge")
-                  : t("批量日程", "Batch events")
-              }}</strong></span
-            ></Button
-          ><span
-            v-if="draft.rows.length"
-            class="badge"
-            :class="{
-              'badge-warning': issues.length || !draft.recipientColumn,
-            }"
-            >{{
-              issues.length || !draft.recipientColumn
-                ? t("待检查", "Needs review")
-                : t("校验通过", "Validated")
-            }}</span
-          ><Button
+            :options="
+              drafts.map((item) => ({ value: item.id, label: item.title }))
+            "
+            :aria-label="t('切换草稿', 'Switch draft')"
+          /><Button
             variant="outline"
-            size="sm"
+            size="icon"
             :disabled="busy"
-            @click="fileInput?.click()"
-            ><Upload />{{
-              t(
-                draft.rows.length ? "替换名单" : "导入名单",
-                draft.rows.length ? "Replace list" : "Import list",
-              )
-            }}</Button
-          ><Button
-            v-if="draft.rows.length"
-            variant="ghost"
-            size="icon-sm"
-            :disabled="busy"
-            :aria-label="t('清除名单', 'Clear list')"
-            @click="clearOpen = true"
-            ><X /></Button
-          ><input
-            ref="fileInput"
-            type="file"
-            accept=".csv,.xls,.xlsx"
-            class="sr-only"
-            tabindex="-1"
-            @change="importFile"
-          />
+            :aria-label="t('新建草稿', 'New draft')"
+            @click="addDraft()"
+            ><Plus
+          /></Button>
         </div>
-        <div v-if="draft.mergeOpen" class="merge-body">
-          <p v-if="!draft.rows.length" class="muted text-sm">
-            {{
-              t(
-                "支持 CSV / Excel，最多 5 MB、1000 行。未导入时为单次任务。",
-                "CSV / Excel, up to 5 MB and 1,000 rows. No list means a single task.",
-              )
-            }}
-          </p>
-          <template v-else
-            ><ol class="merge-steps">
-              <li class="done">
-                <CheckCircle2 :size="13" />{{ t("导入名单", "Import list") }}
-              </li>
-              <li :class="{ done: draft.recipientColumn }">
-                {{ t("确认收件人", "Confirm recipients") }}
-              </li>
-              <li>{{ t("插入字段与校验", "Insert fields & validate") }}</li>
-            </ol>
-            <div class="recipient-mapping">
-              <label class="field"
-                ><span>{{
-                  t("收件人列（必须确认）", "Recipient column (confirm first)")
-                }}</span
-                ><AppSelect
-                  :model-value="draft.recipientColumn || undefined"
-                  :options="columnOptions"
-                  :placeholder="t('请选择邮箱列', 'Select email column')"
-                  :disabled="busy"
-                  @update:model-value="selectRecipient($event!)" /></label
-              ><Button
-                v-if="!draft.recipientColumn && suggestion"
-                variant="secondary"
-                size="sm"
-                @click="selectRecipient(suggestion)"
-                >{{ t("使用识别列", "Use detected column") }}:
-                {{ suggestion }}</Button
-              >
-            </div>
-            <div class="merge-detail-toggles">
-              <Button
-                variant="outline"
-                size="sm"
-                :aria-expanded="dataOpen"
-                @click="dataOpen = !dataOpen"
-                ><FileSpreadsheet />{{
-                  t(
-                    dataOpen ? "收起名单" : "查看 / 编辑名单",
-                    dataOpen ? "Hide data" : "View / edit list",
-                  )
-                }}</Button
-              ><Button
-                v-if="placeholders.length"
-                variant="ghost"
-                size="sm"
-                :aria-expanded="mappingOpen"
-                @click="mappingOpen = !mappingOpen"
-                >{{ t("字段映射", "Field mapping") }} ·
-                {{ placeholders.length }}</Button
-              >
-            </div>
-            <div v-if="placeholders.length && mappingOpen" class="mapping-grid">
-              <label v-for="field in placeholders" :key="field" class="field"
-                ><span>{{ tokenLabel(field) }}</span
-                ><AppSelect
-                  v-model="draft.mapping[field]"
-                  :options="columnOptions"
-                  :placeholder="t('映射到名单列', 'Map to a column')"
-                  :disabled="busy || field === draft.recipientColumn"
-              /></label>
-            </div>
-            <div v-if="issues.length" class="merge-validation">
-              <AlertCircle :size="15" /><span
-                >{{ issues.length }}
-                {{ t("项校验详情", "validation details") }}</span
-              ><Button
-                v-for="(issue, issueIndex) in issues.slice(0, 3)"
-                :key="issueIndex"
-                size="xs"
-                variant="ghost"
-                @click="
-                  problemOnly = true;
-                  dataOpen = true;
-                  dataPage = 0;
-                "
-                >{{ issue.row ? `${t("第", "Row")} ${issue.row} · ` : ""
-                }}{{ issue.field }}: {{ issue.message }}</Button
-              >
-            </div>
-            <div v-if="dataOpen" class="merge-table-scroll">
-              <table class="data-table">
-                <caption class="sr-only">
-                  {{
-                    t("邮件合并名单", "Mail merge list")
-                  }}
-                </caption>
-                <thead>
-                  <tr>
-                    <th scope="col">{{ t("行", "Row") }}</th>
-                    <th
-                      v-for="column in draft.columns"
-                      :key="column"
-                      scope="col"
-                    >
-                      {{ column }}
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr
-                    v-for="entry in displayedRows"
-                    :key="entry.index"
-                    :class="{
-                      'row-problem': issues.some(
-                        (issue) => issue.row === entry.index + 1,
-                      ),
-                    }"
-                  >
-                    <th scope="row">{{ entry.index + 1 }}</th>
-                    <td v-for="column in draft.columns" :key="column">
-                      <Input
-                        :model-value="String(entry.row[column] ?? '')"
-                        :aria-label="`${entry.index + 1} · ${column}`"
-                        :disabled="busy"
-                        @update:model-value="entry.row[column] = $event"
-                      />
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            <div v-if="dataOpen" class="row between merge-pagination">
-              <Button
-                variant="ghost"
-                size="sm"
-                :class="{ 'text-primary': problemOnly }"
-                @click="
-                  problemOnly = !problemOnly;
-                  dataPage = 0;
-                "
-                >{{
-                  t(
-                    problemOnly ? "显示全部" : "只看问题行",
-                    problemOnly ? "Show all" : "Problem rows only",
-                  )
-                }}</Button
-              >
-              <div class="row">
-                <Button
-                  variant="outline"
-                  size="icon-sm"
-                  :disabled="dataPage === 0"
-                  :aria-label="t('上一页', 'Previous page')"
-                  @click="dataPage--"
-                  ><ChevronLeft /></Button
-                ><span class="muted text-xs"
-                  >{{ dataPage + 1 }} / {{ pageCount }}</span
-                ><Button
-                  variant="outline"
-                  size="icon-sm"
-                  :disabled="dataPage + 1 >= pageCount"
-                  :aria-label="t('下一页', 'Next page')"
-                  @click="dataPage++"
-                  ><ChevronRight
-                /></Button>
-              </div>
-            </div>
-            <label class="field"
-              ><span>{{
-                t("个性化预览样本", "Personalized preview sample")
-              }}</span
-              ><AppSelect
-                v-model="selectedSample"
-                :options="sampleOptions" /></label
-          ></template>
-        </div>
-      </Card>
-      <Card class="compose-card"
-        ><div class="compose-card-header">
-          <span class="icon-label"
-            ><Mail v-if="draft.kind === 'email'" :size="17" /><CalendarDays
-              v-else
-              :size="17"
-            /><strong>{{
-              t(
-                draft.kind === "email" ? "邮件编辑器" : "日程编辑器",
-                draft.kind === "email" ? "Email editor" : "Calendar editor",
-              )
-            }}</strong></span
-          >
-          <div class="template-picker">
-            <AppSelect
-              v-model="selectedTemplate"
-              :disabled="busy"
-              :options="templateOptions"
-              :aria-label="t('选择模板', 'Choose template')"
-              @update:model-value="$event === 'none' && requestTemplate()"
-            /><Button
-              variant="ghost"
-              size="sm"
-              :disabled="busy || selectedTemplate === 'none'"
-              @click="requestTemplate"
-              >{{ t("应用", "Apply") }}</Button
+        <div class="compose-heading">
+          <div class="compose-identity">
+            <Tabs
+              class="compose-kind-tabs"
+              :model-value="draft.kind"
+              @update:model-value="changeKind"
             >
-          </div>
-        </div>
-        <fieldset
-          :key="draft.id"
-          :disabled="busy"
-          class="compose-fields"
-          @focusin="rememberField"
-        >
-          <template v-if="draft.kind === 'email'"
-            ><div class="compose-field">
-              <label for="compose-to">To</label
-              ><RecipientInput
-                :ref="(instance) => setPayloadInput('to', instance)"
-                data-payload-field="to"
-                id="compose-to"
-                v-model="draft.payload.to"
-                :t="t"
-                label="To"
-                :readonly="!!draft.rows.length && !draft.recipientColumn"
-                :placeholder="
-                  draft.rows.length
-                    ? t('请先确认收件人列', 'Confirm recipient column')
-                    : undefined
-                "
-              /><Button variant="ghost" size="xs" @click="ccOpen = !ccOpen"
-                >CC</Button
-              ><Button variant="ghost" size="xs" @click="bccOpen = !bccOpen"
-                >BCC</Button
-              >
-            </div>
-            <div v-if="ccOpen || draft.payload.cc" class="compose-field">
-              <label for="compose-cc">CC</label
-              ><RecipientInput
-                :ref="(instance) => setPayloadInput('cc', instance)"
-                data-payload-field="cc"
-                id="compose-cc"
-                v-model="draft.payload.cc"
-                :t="t"
-                label="CC"
-              />
-            </div>
-            <div v-if="bccOpen || draft.payload.bcc" class="compose-field">
-              <label for="compose-bcc">BCC</label
-              ><RecipientInput
-                :ref="(instance) => setPayloadInput('bcc', instance)"
-                data-payload-field="bcc"
-                id="compose-bcc"
-                v-model="draft.payload.bcc"
-                :t="t"
-                label="BCC"
-              /></div
-          ></template>
-          <div v-else class="event-fields">
-            <label
-              v-for="field in ['requiredAttendees', 'optionalAttendees']"
-              :key="field"
-              class="event-field"
-              ><span>{{ eventLabels[field] }}</span
-              ><RecipientInput
-                :ref="(instance) => setPayloadInput(field, instance)"
-                :data-payload-field="field"
-                v-model="draft.payload[field]"
-                :label="eventLabels[field]!"
-                :t="t"
-                :readonly="
-                  field === 'requiredAttendees' &&
-                  !!draft.rows.length &&
-                  !draft.recipientColumn
-                "
-            /></label>
-            <div class="event-field event-range">
-              <span>{{ t("开始时间", "Start") }}</span
-              ><FieldInput
-                :ref="(instance) => setPayloadInput('start', instance)"
-                data-payload-field="start"
-                v-model="draft.payload.start"
-                :t="t"
-                :aria-label="eventLabels.start"
-                :type="
-                  draft.payload.start?.includes('{') ? 'text' : 'datetime-local'
-                "
-              /><span>{{ t("结束时间", "End") }}</span
-              ><FieldInput
-                :ref="(instance) => setPayloadInput('end', instance)"
-                data-payload-field="end"
-                v-model="draft.payload.end"
-                :t="t"
-                :aria-label="eventLabels.end"
-                :type="
-                  draft.payload.end?.includes('{') ? 'text' : 'datetime-local'
-                "
-              />
-            </div>
-            <label class="event-field"
-              ><span>{{ eventLabels.location }}</span
-              ><FieldInput
-                :ref="(instance) => setPayloadInput('location', instance)"
-                data-payload-field="location"
-                v-model="draft.payload.location"
-                :t="t"
-                :aria-label="eventLabels.location"
-                type="text"
-            /></label>
-          </div>
-          <div class="compose-field">
-            <label for="compose-subject">{{ t("主题", "Subject") }}</label
-            ><FieldInput
-              :ref="(instance) => setPayloadInput('subject', instance)"
-              data-payload-field="subject"
-              id="compose-subject"
-              v-model="draft.payload.subject"
-              :t="t"
-              :placeholder="
-                t('给草稿一个清晰的主题', 'Give this draft a clear subject')
-              "
+              <TabsList>
+                <TabsTrigger value="email" :disabled="busy">{{
+                  t("邮件", "Email")
+                }}</TabsTrigger>
+                <TabsTrigger value="event" :disabled="busy">{{
+                  t("日程", "Event")
+                }}</TabsTrigger>
+              </TabsList>
+            </Tabs>
+            <Input
+              v-model="draft.title"
+              class="draft-title"
+              :aria-label="t('草稿名称', 'Draft name')"
+              :disabled="busy"
             />
           </div>
-        </fieldset>
-        <HtmlEditor
-          v-for="editorDraft in [draft]"
-          :key="editorDraft.id"
-          v-model="editorDraft.payload.html"
-          :t="t"
-          :dark="dark"
-          :disabled="busy"
-          :fields="insertFields"
-          v-model:field-target="fieldTarget"
-          :field-targets="fieldTargets"
-          @insert-field="insertPayloadField"
-          :preview-html="previewHtml"
-          :preview-subject="previewSubject"
-          @agent="agentOpen = true"
-        />
-        <div class="editor-status">
-          <span>{{
-            t("保存后可在历史中恢复", "Saved drafts are available in history")
-          }}</span
-          ><span>{{
-            savedCurrent
-              ? t("已保存", "Saved")
-              : t("有未保存编辑", "Unsaved edits")
-          }}</span>
+          <div class="compose-actions">
+            <Button variant="outline" :disabled="busy" @click="save()">
+              <Save />{{ t("保存草稿", "Save draft") }}
+            </Button>
+            <Button
+              variant="ghost"
+              :disabled="busy"
+              @click="emit('template', draft.kind, { ...draft.payload })"
+              >{{ t("保存为模板", "Save as template") }}</Button
+            >
+            <Button :disabled="busy" @click="save(true)">
+              <Eye />{{ t("审核并确认", "Review & confirm") }}
+            </Button>
+          </div>
         </div>
-      </Card>
 
-      <!-- <p class="execution-note"><ShieldCheck :size="14" />{{ t('保存与起草不会发送邮件。执行前需另行确认整批内容。', 'Saving and drafting never send messages. Execution requires separate batch review.') }}</p> -->
+        <Card class="merge-panel"
+          ><div class="merge-summary">
+            <Button
+              variant="ghost"
+              class="merge-expand"
+              :aria-expanded="draft.mergeOpen"
+              @click="draft.mergeOpen = !draft.mergeOpen"
+              ><FileSpreadsheet :size="18" /><span>
+                <ChevronDown v-if="draft.mergeOpen" :size="15" /><ChevronRight
+                  v-else
+                  :size="15"
+                /><strong>{{
+                  draft.kind === "email"
+                    ? t("邮件合并", "Mail merge")
+                    : t("批量日程", "Batch events")
+                }}</strong></span
+              ></Button
+            ><span
+              v-if="draft.rows.length"
+              class="badge"
+              :class="{
+                'badge-warning': issues.length || !draft.recipientColumn,
+              }"
+              >{{
+                issues.length || !draft.recipientColumn
+                  ? t("待检查", "Needs review")
+                  : t("校验通过", "Validated")
+              }}</span
+            ><Button
+              variant="outline"
+              size="sm"
+              :disabled="busy"
+              @click="fileInput?.click()"
+              ><Upload />{{
+                t(
+                  draft.rows.length ? "替换名单" : "导入名单",
+                  draft.rows.length ? "Replace list" : "Import list",
+                )
+              }}</Button
+            ><Button
+              v-if="draft.rows.length"
+              variant="ghost"
+              size="icon-sm"
+              :disabled="busy"
+              :aria-label="t('清除名单', 'Clear list')"
+              @click="clearOpen = true"
+              ><X /></Button
+            ><input
+              ref="fileInput"
+              type="file"
+              accept=".csv,.xls,.xlsx"
+              class="sr-only"
+              tabindex="-1"
+              @change="importFile"
+            />
+          </div>
+          <div v-if="draft.mergeOpen" class="merge-body">
+            <p v-if="!draft.rows.length" class="muted text-sm">
+              {{
+                t(
+                  "支持 CSV / Excel，最多 5 MB、1000 行。未导入时为单次任务。",
+                  "CSV / Excel, up to 5 MB and 1,000 rows. No list means a single task.",
+                )
+              }}
+            </p>
+            <template v-else
+              ><ol class="merge-steps">
+                <li class="done">
+                  <CheckCircle2 :size="13" />{{ t("导入名单", "Import list") }}
+                </li>
+                <li :class="{ done: draft.recipientColumn }">
+                  {{ t("确认收件人", "Confirm recipients") }}
+                </li>
+                <li>{{ t("插入字段与校验", "Insert fields & validate") }}</li>
+              </ol>
+              <div class="recipient-mapping">
+                <label class="field"
+                  ><span>{{
+                    t(
+                      "收件人列（必须确认）",
+                      "Recipient column (confirm first)",
+                    )
+                  }}</span
+                  ><AppSelect
+                    :model-value="draft.recipientColumn || undefined"
+                    :options="columnOptions"
+                    :placeholder="t('请选择邮箱列', 'Select email column')"
+                    :disabled="busy"
+                    @update:model-value="selectRecipient($event!)" /></label
+                ><Button
+                  v-if="!draft.recipientColumn && suggestion"
+                  variant="secondary"
+                  size="sm"
+                  @click="selectRecipient(suggestion)"
+                  >{{ t("使用识别列", "Use detected column") }}:
+                  {{ suggestion }}</Button
+                >
+              </div>
+              <div class="merge-detail-toggles">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  :aria-expanded="dataOpen"
+                  @click="dataOpen = !dataOpen"
+                  ><FileSpreadsheet />{{
+                    t(
+                      dataOpen ? "收起名单" : "查看 / 编辑名单",
+                      dataOpen ? "Hide data" : "View / edit list",
+                    )
+                  }}</Button
+                ><Button
+                  v-if="placeholders.length"
+                  variant="ghost"
+                  size="sm"
+                  :aria-expanded="mappingOpen"
+                  @click="mappingOpen = !mappingOpen"
+                  >{{ t("字段映射", "Field mapping") }} ·
+                  {{ placeholders.length }}</Button
+                >
+              </div>
+              <div
+                v-if="placeholders.length && mappingOpen"
+                class="mapping-grid"
+              >
+                <label v-for="field in placeholders" :key="field" class="field"
+                  ><span>{{ tokenLabel(field) }}</span
+                  ><AppSelect
+                    v-model="draft.mapping[field]"
+                    :options="columnOptions"
+                    :placeholder="t('映射到名单列', 'Map to a column')"
+                    :disabled="busy || field === draft.recipientColumn"
+                /></label>
+              </div>
+              <div v-if="issues.length" class="merge-validation">
+                <AlertCircle :size="15" /><span
+                  >{{ issues.length }}
+                  {{ t("项校验详情", "validation details") }}</span
+                ><Button
+                  v-for="(issue, issueIndex) in issues.slice(0, 3)"
+                  :key="issueIndex"
+                  size="xs"
+                  variant="ghost"
+                  @click="
+                    problemOnly = true;
+                    dataOpen = true;
+                    dataPage = 0;
+                  "
+                  >{{ issue.row ? `${t("第", "Row")} ${issue.row} · ` : ""
+                  }}{{ issue.field }}: {{ issue.message }}</Button
+                >
+              </div>
+              <div v-if="dataOpen" class="merge-table-scroll">
+                <table class="data-table">
+                  <caption class="sr-only">
+                    {{
+                      t("邮件合并名单", "Mail merge list")
+                    }}
+                  </caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">{{ t("行", "Row") }}</th>
+                      <th
+                        v-for="column in draft.columns"
+                        :key="column"
+                        scope="col"
+                      >
+                        {{ column }}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr
+                      v-for="entry in displayedRows"
+                      :key="entry.index"
+                      :class="{
+                        'row-problem': issues.some(
+                          (issue) => issue.row === entry.index + 1,
+                        ),
+                      }"
+                    >
+                      <th scope="row">{{ entry.index + 1 }}</th>
+                      <td v-for="column in draft.columns" :key="column">
+                        <Input
+                          :model-value="String(entry.row[column] ?? '')"
+                          :aria-label="`${entry.index + 1} · ${column}`"
+                          :disabled="busy"
+                          @update:model-value="entry.row[column] = $event"
+                        />
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div v-if="dataOpen" class="row between merge-pagination">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  :class="{ 'text-primary': problemOnly }"
+                  @click="
+                    problemOnly = !problemOnly;
+                    dataPage = 0;
+                  "
+                  >{{
+                    t(
+                      problemOnly ? "显示全部" : "只看问题行",
+                      problemOnly ? "Show all" : "Problem rows only",
+                    )
+                  }}</Button
+                >
+                <div class="row">
+                  <Button
+                    variant="outline"
+                    size="icon-sm"
+                    :disabled="dataPage === 0"
+                    :aria-label="t('上一页', 'Previous page')"
+                    @click="dataPage--"
+                    ><ChevronLeft /></Button
+                  ><span class="muted text-xs"
+                    >{{ dataPage + 1 }} / {{ pageCount }}</span
+                  ><Button
+                    variant="outline"
+                    size="icon-sm"
+                    :disabled="dataPage + 1 >= pageCount"
+                    :aria-label="t('下一页', 'Next page')"
+                    @click="dataPage++"
+                    ><ChevronRight
+                  /></Button>
+                </div>
+              </div>
+              <label class="field"
+                ><span>{{
+                  t("个性化预览样本", "Personalized preview sample")
+                }}</span
+                ><AppSelect
+                  v-model="selectedSample"
+                  :options="sampleOptions" /></label
+            ></template>
+          </div>
+        </Card>
+        <Card class="compose-card">
+          <div class="compose-card-controls">
+            <div class="compose-card-header">
+              <span class="icon-label"
+                ><Mail v-if="draft.kind === 'email'" :size="17" /><CalendarDays
+                  v-else
+                  :size="17"
+                /><strong>{{
+                  t(
+                    draft.kind === "email" ? "邮件编辑器" : "日程编辑器",
+                    draft.kind === "email" ? "Email editor" : "Calendar editor",
+                  )
+                }}</strong></span
+              >
+              <div class="template-picker">
+                <AppSelect
+                  v-model="selectedTemplate"
+                  :disabled="busy"
+                  :options="templateOptions"
+                  :aria-label="t('选择模板', 'Choose template')"
+                  @update:model-value="$event === 'none' && requestTemplate()"
+                /><Button
+                  variant="ghost"
+                  size="sm"
+                  :disabled="busy || selectedTemplate === 'none'"
+                  @click="requestTemplate"
+                  >{{ t("应用", "Apply") }}</Button
+                >
+              </div>
+            </div>
+            <fieldset
+              :key="draft.id"
+              :disabled="busy"
+              class="compose-fields"
+              @focusin="rememberField"
+            >
+              <template v-if="draft.kind === 'email'"
+                ><div class="compose-field">
+                  <label for="compose-to">To</label
+                  ><RecipientInput
+                    :ref="(instance) => setPayloadInput('to', instance)"
+                    data-payload-field="to"
+                    id="compose-to"
+                    v-model="draft.payload.to"
+                    :t="t"
+                    label="To"
+                    :readonly="!!draft.rows.length && !draft.recipientColumn"
+                    :placeholder="
+                      draft.rows.length
+                        ? t('请先确认收件人列', 'Confirm recipient column')
+                        : undefined
+                    "
+                  /><Button variant="ghost" size="xs" @click="ccOpen = !ccOpen"
+                    >CC</Button
+                  ><Button variant="ghost" size="xs" @click="bccOpen = !bccOpen"
+                    >BCC</Button
+                  >
+                </div>
+                <div v-if="ccOpen || draft.payload.cc" class="compose-field">
+                  <label for="compose-cc">CC</label
+                  ><RecipientInput
+                    :ref="(instance) => setPayloadInput('cc', instance)"
+                    data-payload-field="cc"
+                    id="compose-cc"
+                    v-model="draft.payload.cc"
+                    :t="t"
+                    label="CC"
+                  />
+                </div>
+                <div v-if="bccOpen || draft.payload.bcc" class="compose-field">
+                  <label for="compose-bcc">BCC</label
+                  ><RecipientInput
+                    :ref="(instance) => setPayloadInput('bcc', instance)"
+                    data-payload-field="bcc"
+                    id="compose-bcc"
+                    v-model="draft.payload.bcc"
+                    :t="t"
+                    label="BCC"
+                  /></div
+              ></template>
+              <div v-else class="event-fields">
+                <div class="compose-field event-field">
+                  <label for="compose-required-attendees">{{
+                    eventLabels.requiredAttendees
+                  }}</label>
+                  <RecipientInput
+                    :ref="
+                      (instance) =>
+                        setPayloadInput('requiredAttendees', instance)
+                    "
+                    data-payload-field="requiredAttendees"
+                    id="compose-required-attendees"
+                    v-model="draft.payload.requiredAttendees"
+                    :label="eventLabels.requiredAttendees!"
+                    :t="t"
+                    :readonly="!!draft.rows.length && !draft.recipientColumn"
+                    :placeholder="
+                      draft.rows.length
+                        ? t('请先确认收件人列', 'Confirm recipient column')
+                        : undefined
+                    "
+                  />
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    :disabled="busy"
+                    :aria-expanded="
+                      optionalAttendeesOpen || !!draft.payload.optionalAttendees
+                    "
+                    aria-controls="compose-optional-attendees-row"
+                    @click="optionalAttendeesOpen = !optionalAttendeesOpen"
+                    >{{ t("可选", "Optional") }}</Button
+                  >
+                </div>
+                <div
+                  v-if="
+                    optionalAttendeesOpen || draft.payload.optionalAttendees
+                  "
+                  id="compose-optional-attendees-row"
+                  class="compose-field event-field"
+                >
+                  <label for="compose-optional-attendees">{{
+                    eventLabels.optionalAttendees
+                  }}</label>
+                  <RecipientInput
+                    :ref="
+                      (instance) =>
+                        setPayloadInput('optionalAttendees', instance)
+                    "
+                    data-payload-field="optionalAttendees"
+                    id="compose-optional-attendees"
+                    v-model="draft.payload.optionalAttendees"
+                    :label="eventLabels.optionalAttendees!"
+                    :t="t"
+                  />
+                </div>
+                <div class="event-field event-range">
+                  <span>{{ t("开始时间", "Start") }}</span
+                  ><FieldInput
+                    :ref="(instance) => setPayloadInput('start', instance)"
+                    data-payload-field="start"
+                    v-model="draft.payload.start"
+                    :t="t"
+                    :aria-label="eventLabels.start"
+                    :type="
+                      draft.payload.start?.includes('{')
+                        ? 'text'
+                        : 'datetime-local'
+                    "
+                  /><span>{{ t("结束时间", "End") }}</span
+                  ><FieldInput
+                    :ref="(instance) => setPayloadInput('end', instance)"
+                    data-payload-field="end"
+                    v-model="draft.payload.end"
+                    :t="t"
+                    :aria-label="eventLabels.end"
+                    :type="
+                      draft.payload.end?.includes('{')
+                        ? 'text'
+                        : 'datetime-local'
+                    "
+                  />
+                </div>
+                <label class="event-field"
+                  ><span>{{ eventLabels.location }}</span
+                  ><FieldInput
+                    :ref="(instance) => setPayloadInput('location', instance)"
+                    data-payload-field="location"
+                    v-model="draft.payload.location"
+                    :t="t"
+                    :aria-label="eventLabels.location"
+                    type="text"
+                /></label>
+              </div>
+              <div class="compose-field">
+                <label for="compose-subject">{{ t("主题", "Subject") }}</label
+                ><FieldInput
+                  :ref="(instance) => setPayloadInput('subject', instance)"
+                  data-payload-field="subject"
+                  id="compose-subject"
+                  v-model="draft.payload.subject"
+                  :t="t"
+                  :placeholder="
+                    t('给草稿一个清晰的主题', 'Give this draft a clear subject')
+                  "
+                />
+              </div>
+            </fieldset>
+          </div>
+          <HtmlEditor
+            v-for="editorDraft in [draft]"
+            :key="editorDraft.id"
+            v-model="editorDraft.payload.html"
+            fill
+            :t="t"
+            :dark="dark"
+            :disabled="busy"
+            :fields="insertFields"
+            v-model:field-target="fieldTarget"
+            :field-targets="fieldTargets"
+            @insert-field="insertPayloadField"
+            :preview-html="previewHtml"
+            :preview-subject="previewSubject"
+            @agent="agentOpen = true"
+          />
+          <div class="editor-status">
+            <span>{{
+              t("保存后可在历史中恢复", "Saved drafts are available in history")
+            }}</span
+            ><span>{{
+              savedCurrent
+                ? t("已保存", "Saved")
+                : t("有未保存编辑", "Unsaved edits")
+            }}</span>
+          </div>
+        </Card>
+
+        <!-- <p class="execution-note"><ShieldCheck :size="14" />{{ t('保存与起草不会发送邮件。执行前需另行确认整批内容。', 'Saving and drafting never send messages. Execution requires separate batch review.') }}</p> -->
+      </section>
       <div class="agent-launch-anchor">
         <Button
           variant="secondary"
           class="agent-launch"
           :disabled="busy"
+          :aria-label="
+            t('打开 OmniAgent 起草或改写', 'Open OmniAgent to draft or revise')
+          "
+          aria-keyshortcuts="Meta+K Control+K"
           @click="agentOpen = true"
-          ><span class="agent-emblem"><Sparkles /></span
-          ><span
-            ><strong>{{
-              t(
-                "与 OmniMail Agent 一起起草或改写",
-                "Draft or revise with OmniMail Agent",
-              )
-            }}</strong
-            ><small>{{
-              t(
-                "描述目标、组织内容、检查字段",
-                "Describe goals, organize content, check fields",
-              )
-            }}</small></span
-          ><kbd>Command / Ctrl K</kbd></Button
         >
+          <span class="agent-emblem"><Sparkles /></span>
+          <strong class="agent-launch-label">OmniAgent</strong>
+          <span class="agent-launch-details" aria-hidden="true">
+            <span class="agent-launch-details-content">
+              <small>{{
+                t(
+                  "描述目标、组织内容、检查字段",
+                  "Describe goals, organize content, check fields",
+                )
+              }}</small>
+              <kbd>Command / Ctrl K</kbd>
+            </span>
+          </span>
+        </Button>
       </div>
-    </section>
+    </div>
     <aside class="agent-sidebar">
       <div class="agent-heading">
         <span class="agent-emblem"><Sparkles :size="22" /></span>

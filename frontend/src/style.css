@@ -12,6 +12,7 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--primary);
   --color-destructive: #c04444;
+  --color-destructive-foreground: #fff;
   --color-border: var(--border);
   --color-input: var(--border);
   --color-ring: var(--primary);
@@ -303,24 +304,59 @@ label {
   justify-content: flex-end;
   margin-top: 20px;
 }
-.notification-card {
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  padding-right: 42px !important;
+.notification-card.Notivue__notification {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) 28px;
+  align-items: start;
+  column-gap: 10px;
+  row-gap: 8px;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  padding: 12px;
   overflow-wrap: anywhere;
 }
+.notification-card-pending.Notivue__notification {
+  grid-template-columns: 20px minmax(0, 1fr);
+}
+.notification-card .Notivue__icon {
+  grid-column: 1;
+  grid-row: 1;
+  margin: 4px 0 0;
+}
 .notification-card .Notivue__content {
+  grid-column: 2;
+  grid-row: 1;
   min-width: 0;
+  padding: 3px 0 0;
 }
-.notification-close {
-  position: absolute;
-  right: 7px;
-  top: 50%;
-  transform: translateY(-50%);
+.notification-card .Notivue__content-title {
+  line-height: 1.4;
+  margin-bottom: 4px;
 }
-.notification-action {
-  margin-left: auto;
+.notification-card .Notivue__content-message {
+  max-height: min(200px, 30dvh);
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.notification-card .notification-close {
+  grid-column: 3;
+  grid-row: 1;
+  width: 28px;
+  height: 28px;
+  padding: 4px;
+  color: var(--muted-foreground);
+}
+.notification-card .notification-action {
+  grid-column: 2 / -1;
+  grid-row: 2;
+  justify-self: end;
+  max-width: 100%;
+  height: auto;
+  min-height: 32px;
+  padding: 6px 10px;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .secret-key-panel {
   border: 1px solid var(--border);
@@ -604,12 +640,22 @@ kbd {
 .task-space-note svg {
   margin-top: 3px;
 }
+.compose-region {
+  --compose-gutter: 28px;
+  --compose-block-padding: 26px;
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+}
 .compose-workspace {
-  padding: 26px 28px;
+  flex: 1;
+  min-height: 0;
+  padding: var(--compose-block-padding) var(--compose-gutter);
   display: flex;
   flex-direction: column;
   gap: 18px;
-  overflow: auto;
+  overflow: hidden;
   min-width: 0;
 }
 .mobile-draft-switch {
@@ -653,8 +699,89 @@ kbd {
 .compose-card,
 .merge-panel {
   box-shadow: none;
-  flex-shrink: 0;
   overflow: hidden;
+}
+.compose-workspace > .compose-heading,
+.compose-workspace > .mobile-draft-switch {
+  flex-shrink: 0;
+}
+.compose-workspace > .merge-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 25%;
+}
+.compose-workspace > .merge-panel .merge-summary {
+  flex-shrink: 0;
+}
+.compose-workspace > .merge-panel .merge-body {
+  min-height: 0;
+  overflow: auto;
+}
+.compose-workspace > .compose-card {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.compose-card-controls {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 45%;
+  overflow: auto;
+}
+.compose-card > .editor-status {
+  flex-shrink: 0;
+}
+.html-editor-fill {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.html-editor-fill > .editor-modes {
+  flex-shrink: 0;
+}
+.html-editor-fill > .field-insert {
+  flex-shrink: 0;
+  flex-wrap: nowrap;
+  max-height: 48px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+}
+.html-editor-fill > .field-insert > * {
+  flex-shrink: 0;
+}
+.html-editor-fill > .rich-surface,
+.html-editor-fill > .source-surface,
+.html-editor-fill > .preview-surface {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+  overflow: hidden;
+}
+.html-editor-fill > .rich-surface,
+.html-editor-fill > .preview-surface {
+  display: flex;
+  flex-direction: column;
+}
+.html-editor-fill .tox-tinymce {
+  width: 100%;
+  height: 100% !important;
+  min-height: 0;
+}
+.html-editor-fill .preview-surface .preview-subject {
+  flex-shrink: 0;
+  max-height: 25%;
+  overflow: auto;
+}
+.html-editor-fill .preview-surface iframe {
+  flex: 1;
+  height: 0;
+  min-height: 0;
 }
 .compose-card-header {
   display: flex;
@@ -868,7 +995,8 @@ kbd {
 .event-field:last-child {
   border-bottom: 0;
 }
-.event-field > span {
+.event-field > span,
+.event-field > label {
   width: 84px;
   min-width: 84px;
   font-size: 11px;
@@ -962,43 +1090,89 @@ kbd {
   line-height: 1.5;
 }
 .agent-launch-anchor {
-  position: sticky;
-  bottom: 0;
+  position: absolute;
+  right: var(--compose-gutter);
+  bottom: var(--compose-block-padding);
   z-index: 5;
-  width: 100%;
-  flex-shrink: 0;
-  background: var(--background);
+  max-width: calc(100% - var(--compose-gutter) - var(--compose-gutter));
 }
 .agent-launch {
   display: flex;
-  width: 100%;
+  width: max-content;
+  max-width: 100%;
   justify-content: flex-start;
-  gap: 12px;
-  flex-shrink: 0;
+  gap: 0;
   text-align: left;
-  white-space: normal;
-  height: auto;
-  padding: 12px 14px;
+  white-space: nowrap;
+  height: 48px;
+  padding: 6px 16px 6px 6px;
+  border-radius: 999px;
   border: 1px solid color-mix(in srgb, var(--primary) 16%, var(--border));
+  background: var(--card);
+  color: var(--primary);
+  box-shadow: 0 6px 24px -6px rgb(0 0 0 / 0.2);
 }
-.agent-launch-anchor .agent-launch {
-  box-shadow: 0 8px 24px -12px rgb(0 0 0 / 0.25);
+.agent-launch .agent-emblem {
+  height: 34px;
+  width: 34px;
+  min-width: 34px;
+  margin-right: 8px;
+  border-radius: 50%;
 }
-.agent-launch > span:nth-child(2) {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
+.agent-launch .agent-emblem svg {
+  width: 18px;
+  height: 18px;
 }
-.agent-launch strong {
+.agent-launch-label {
+  flex-shrink: 0;
   font-size: 12px;
 }
-.agent-launch small {
+.agent-launch-details {
+  min-width: 0;
+  max-width: 0;
+  overflow: hidden;
+  opacity: 0;
+  margin-left: 0;
+  transition:
+    max-width 240ms ease,
+    opacity 180ms ease,
+    margin-left 240ms ease;
+}
+.agent-launch-details-content {
+  display: grid;
+  gap: 2px;
+  width: max-content;
+}
+.agent-launch-details small {
   font-size: 10px;
   font-weight: 400;
 }
 .agent-launch kbd {
-  margin-left: auto;
-  white-space: nowrap;
+  justify-self: start;
+  font-size: 9px;
+  line-height: 1.4;
+  padding: 0 4px;
+}
+.agent-launch:focus-visible .agent-launch-details {
+  max-width: 260px;
+  opacity: 1;
+  margin-left: 12px;
+}
+@media (hover: hover) {
+  .agent-launch:hover {
+    background: var(--accent);
+  }
+  .agent-launch:hover .agent-launch-details {
+    max-width: 260px;
+    opacity: 1;
+    margin-left: 12px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .agent-launch,
+  .agent-launch-details {
+    transition: none;
+  }
 }
 .agent-emblem {
   display: grid;
@@ -1395,8 +1569,9 @@ kbd {
   gap: 7px;
 }
 @media (min-width: 1600px) {
-  .compose-workspace {
-    padding: 32px 48px;
+  .compose-region {
+    --compose-gutter: 48px;
+    --compose-block-padding: 32px;
   }
   .desk-workspace {
     grid-template-columns: 240px minmax(0, 1fr) 320px;
@@ -1415,8 +1590,9 @@ kbd {
   .desk-content {
     padding: 0;
   }
-  .compose-workspace {
-    padding: 24px;
+  .compose-region {
+    --compose-gutter: 24px;
+    --compose-block-padding: 24px;
   }
   .workspace {
     grid-template-columns: minmax(0, 1fr);
@@ -1428,6 +1604,23 @@ kbd {
   }
   .task-space {
     display: none;
+  }
+  .compose-workspace {
+    overflow: auto;
+  }
+  .compose-workspace > .merge-panel {
+    flex-shrink: 0;
+    max-height: none;
+  }
+  .compose-workspace > .compose-card {
+    flex: 1 0 auto;
+  }
+  .compose-card-controls {
+    flex-shrink: 0;
+    max-height: none;
+  }
+  .html-editor-fill {
+    min-height: 320px;
   }
   .mobile-draft-switch {
     display: flex;
@@ -1481,9 +1674,18 @@ kbd {
   .desk-content {
     padding: 0;
   }
+  .compose-region {
+    --compose-gutter: 14px;
+    --compose-block-padding: 18px;
+  }
   .compose-workspace {
-    padding: 18px 14px;
     gap: 15px;
+  }
+  .html-editor-fill > .editor-modes > span {
+    display: none;
+  }
+  .html-editor-fill > .editor-modes {
+    padding: 4px 10px;
   }
   .compose-identity {
     flex-basis: 100%;
@@ -1551,18 +1753,8 @@ kbd {
     padding-left: 8px;
     padding-right: 8px;
   }
-  .agent-launch {
-    padding: 11px;
-    gap: 9px;
-  }
   .agent-launch kbd {
     display: none;
-  }
-  .agent-launch strong {
-    font-size: 11px;
-  }
-  .agent-launch small {
-    font-size: 9px;
   }
   .editor-status {
     padding: 9px 10px;
@@ -1576,7 +1768,7 @@ kbd {
     font-size: 10px;
   }
   .merge-expand {
-    min-width: 100%;
+    min-width: 0;
     flex: 1;
   }
   .merge-summary > .badge {
@@ -1627,7 +1819,8 @@ kbd {
     padding: 5px 10px;
     gap: 6px;
   }
-  .event-field > span {
+  .event-field > span,
+  .event-field > label {
     width: 76px;
     min-width: 76px;
     font-size: 10px;

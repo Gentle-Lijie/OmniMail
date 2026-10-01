@@ -55,7 +55,10 @@ const theme: NotivueTheme = {
   "--nv-global-border": "var(--border)",
   "--nv-border-width": "1px",
   "--nv-radius": "12px",
-  "--nv-width": "380px",
+  "--nv-width": "100%",
+  "--nv-icon-size": "20px",
+  "--nv-y-align": "start",
+  "--nv-y-align-has-title": "start",
   "--nv-message-size": "13px",
   "--nv-success-accent": "var(--success)",
   "--nv-error-accent": "var(--notification-error)",
@@ -66,15 +69,48 @@ const theme: NotivueTheme = {
 const { teleportTo } = useNotivue();
 const modal = ref(false);
 const styles = computed(() => ({
-  list: {
-    position: modal.value ? ("absolute" as const) : ("fixed" as const),
-    top: modal.value ? "12px" : "76px",
-    bottom: "12px",
-    left: "auto",
-    right: "12px",
-    width: "380px",
-    maxWidth: "calc(100% - 24px)",
-    zIndex: 100,
+  list: modal.value
+    ? {
+        position: "relative" as const,
+        inset: "auto",
+        margin: "0",
+        width: "100%",
+        maxWidth: "100%",
+        maxHeight: "min(240px, 30dvh)",
+        flexDirection: "column" as const,
+        justifyContent: "flex-start",
+        flexShrink: 0,
+        overflowY: "auto" as const,
+        overflowX: "hidden" as const,
+        clipPath: "none",
+        zIndex: 100,
+      }
+    : {
+        position: "fixed" as const,
+        top: "76px",
+        bottom: "12px",
+        left: "auto",
+        right: "12px",
+        width: "380px",
+        maxWidth: "calc(100% - 24px)",
+        overflowY: "auto" as const,
+        overflowX: "hidden" as const,
+        clipPath: "none",
+        zIndex: 100,
+      },
+  listItem: modal.value
+    ? {
+        position: "relative" as const,
+        transform: "none",
+        top: "auto",
+        bottom: "auto",
+        transition: "none",
+        flexShrink: 0,
+      }
+    : {},
+  itemContainer: {
+    width: "100%",
+    minWidth: "0",
   },
 }));
 let observer: MutationObserver | undefined;
@@ -116,6 +152,7 @@ const actionOf = (props: Record<string, unknown>) =>
       :icons="icons"
       hide-close
       class="notification-card"
+      :class="{ 'notification-card-pending': item.type === 'promise' }"
     >
       <Button
         v-if="item.type !== 'promise'"

@@ -20,6 +20,7 @@ const props = defineProps<{
   fields?: string[];
   dark?: boolean;
   disabled?: boolean;
+  fill?: boolean;
   previewHtml?: string;
   previewSubject?: string;
   fieldTarget?: string;
@@ -101,7 +102,7 @@ onErrorCaptured(() => {
 });
 </script>
 <template>
-  <div class="html-editor">
+  <div class="html-editor" :class="{ 'html-editor-fill': fill }">
     <Tabs
       v-model="tab"
       class="editor-modes"
@@ -149,6 +150,7 @@ onErrorCaptured(() => {
           :dark="dark"
           :fields="fields"
           :disabled="disabled"
+          :fill="fill"
           @focus="emit('update:fieldTarget', 'html')"
           @agent="emit('agent')"
           @ready="richReady = true"

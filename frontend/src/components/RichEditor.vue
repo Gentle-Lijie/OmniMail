@@ -15,6 +15,7 @@ import { escapeHtml } from "@/lib/mailMerge";
 const props = defineProps<{
   dark?: boolean;
   disabled?: boolean;
+  fill?: boolean;
   fields?: string[];
 }>();
 const emit = defineEmits<{ agent: []; failed: []; ready: []; focus: [] }>();
@@ -45,7 +46,10 @@ function insert(field: string) {
 }
 const init: RawEditorOptions = {
   license_key: "gpl",
-  height: 350,
+  height: props.fill ? "100%" : 350,
+  min_height: props.fill ? 0 : 100,
+  resize: !props.fill,
+  statusbar: !props.fill,
   menubar: false,
   skin: false,
   content_css: false,
