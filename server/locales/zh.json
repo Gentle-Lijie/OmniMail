@@ -115,7 +115,9 @@
     "deliveryResultUnknownInspectFlowRunHistoryBeforeRetrying": "投递结果未知，重试前请检查流程运行记录",
     "serverRestartedDuringRequestInspectFlowHistory": "请求期间服务器重启，请检查流程运行记录",
     "onlyDraftTasksMayBeConfirmed": "只能确认草稿状态的任务",
-    "taskCannotBeCancelled": "无法取消此任务"
+    "taskCannotBeCancelled": "无法取消此任务",
+    "testEmailSingleRecipient": "测试邮件仅支持一个有效的收件邮箱",
+    "testEmailBodyRequired": "请填写邮件正文"
   },
   "mcp": {
     "sendEmail": "立即发送 Outlook 邮件（无需人工确认），返回排队任务。接口接收不代表投递成功。",

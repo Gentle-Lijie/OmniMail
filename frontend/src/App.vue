@@ -256,8 +256,10 @@ const filtered = computed(() =>
         x.templateId === templateFilter.value) &&
       (sourceFilter.value === "all" ||
         (sourceFilter.value === "web"
-          ? x.source === "web"
-          : x.source.startsWith("mcp:"))) &&
+          ? x.source.startsWith("web")
+          : sourceFilter.value === "test"
+            ? x.source === "web:test-email"
+            : x.source.startsWith("mcp:"))) &&
       (!fromDate.value || x.createdAt.slice(0, 10) >= fromDate.value) &&
       (!toDate.value || x.createdAt.slice(0, 10) <= toDate.value),
   ),
@@ -582,6 +584,7 @@ const placeholderHint = computed(
                   :options="[
                     { value: 'all', label: copy.allSources },
                     { value: 'web', label: copy.web },
+                    { value: 'test', label: copy.testEmail },
                     { value: 'mcp', label: copy.mcp },
                   ]"
               /></label>
@@ -602,7 +605,14 @@ const placeholderHint = computed(
                 <strong>{{ x.summary || x.id }}</strong>
                 <p class="muted text-xs">
                   {{ kindLabel(x.kind) }} ·
-                  {{ x.source.startsWith("mcp:") ? copy.mcp : copy.web }} ·
+                  {{
+                    x.source === "web:test-email"
+                      ? copy.testEmail
+                      : x.source.startsWith("mcp:")
+                        ? copy.mcp
+                        : copy.web
+                  }}
+                  ·
                   {{ formatDate(x.createdAt) }}
                 </p>
                 <span class="badge">{{ stateLabel(x.status) }}</span> ·
@@ -893,6 +903,7 @@ const placeholderHint = computed(
           ><Input v-model="templateEdit.subject" required /></label
         ><HtmlEditor
           v-model="templateEdit.html!"
+          :preview-subject="templateEdit.subject"
           :dark="dark"
           :disabled="busy"
           :fields="

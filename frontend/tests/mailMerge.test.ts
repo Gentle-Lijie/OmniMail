@@ -206,6 +206,47 @@ test("previews deny scripts, network, forms and base URL overrides", () => {
   assert.ok(preview.includes("form-action 'none'"));
   assert.ok(preview.includes("base-uri 'none'"));
 });
+test("full email documents preserve their head, media queries and body styles behind the isolation policy", () => {
+  const html =
+    '<!DOCTYPE html><html lang="en"><head><title>Mail</title><style>@media (max-width:600px){.columns{display:block}}</style></head><body style="margin:16px;background:#eee"><table width="900"><tr><td>Body</td></tr></table></body></html>';
+  const preview = previewDocument(html);
+  assert.equal((preview.match(/<html\b/g) || []).length, 1);
+  assert.equal((preview.match(/<head\b/g) || []).length, 1);
+  assert.ok(
+    preview.indexOf("Content-Security-Policy") < preview.indexOf("<title>Mail"),
+  );
+  assert.ok(
+    preview.includes("@media (max-width:600px){.columns{display:block}}"),
+  );
+  assert.ok(preview.includes('<body style="margin:16px;background:#eee">'));
+  assert.ok(preview.includes('width="900"'));
+  assert.ok(!preview.includes("table{max-width:100%}"));
+});
+test("documents without a head and HTML fragments receive a viewport and isolation policy", () => {
+  for (const html of [
+    "<html><body>Hello</body></html>",
+    "<style>@media (max-width:600px){p{color:red}}</style><p>Hello</p>",
+  ]) {
+    const preview = previewDocument(html);
+    assert.ok(preview.includes('<head><meta charset="utf-8">'));
+    assert.ok(preview.includes("width=device-width, initial-scale=1"));
+    assert.ok(preview.includes("img-src data:"));
+    assert.ok(preview.includes("Hello"));
+  }
+});
+test("quoted angle brackets in document attributes cannot swallow the preview policy", () => {
+  const preview = previewDocument(
+    '<html lang="en" data-label=">"><head data-label=">"><style>p{color:red}</style></head><body>Mail</body></html>',
+  );
+  assert.ok(
+    preview.startsWith(
+      '<!doctype html><html lang="en" data-label=">"><head data-label=">"><meta charset="utf-8">',
+    ),
+  );
+  assert.ok(
+    preview.indexOf("Content-Security-Policy") < preview.indexOf("<style>p"),
+  );
+});
 test("event times require an ordered, valid range", () => {
   const event = {
     subject: "交流",

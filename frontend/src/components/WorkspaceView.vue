@@ -17,6 +17,7 @@ import {
   ShieldCheck,
   Save,
   Eye,
+  Send,
   X,
   ChevronLeft,
   ChevronRight,
@@ -37,6 +38,8 @@ import {
 } from "./ui/dialog";
 import AppSelect from "./ui/AppSelect.vue";
 import HtmlEditor from "./HtmlEditor.vue";
+import TestEmailDialog from "./TestEmailDialog.vue";
+import type { TestEmailContent } from "@/lib/testEmail";
 import RecipientInput from "./RecipientInput.vue";
 import FieldInput from "./FieldInput.vue";
 import AgentDialog from "./AgentDialog.vue";
@@ -179,6 +182,20 @@ const agentOpen = ref(false),
   applyTemplateOpen = ref(false),
   clearOpen = ref(false);
 const busy = computed(() => !!activity.value || props.locked);
+const testEmailOpen = ref(false);
+const testEmailContent = ref<TestEmailContent>();
+function openTestEmail() {
+  if (busy.value || draft.value.kind !== "email") return;
+  const target = draft.value;
+  testEmailContent.value = {
+    subject: target.payload.subject,
+    html: target.payload.html,
+    row: { ...(target.rows[target.sample] || {}) },
+    mapping: { ...target.mapping },
+    sample: target.rows.length ? target.sample : undefined,
+  };
+  testEmailOpen.value = true;
+}
 const pendingDeleteId = ref<string>();
 const pendingDeleteDraft = computed(() =>
   drafts.value.find((item) => item.id === pendingDeleteId.value),
@@ -945,6 +962,13 @@ const deleteDraftDescriptionLabel = (name: string) =>
             />
           </div>
           <div class="compose-actions">
+            <Button
+              v-if="draft.kind === 'email'"
+              variant="outline"
+              :disabled="busy"
+              @click="openTestEmail"
+              ><Send />{{ copy.sendTestEmail }}</Button
+            >
             <Button variant="outline" :disabled="busy" @click="save()">
               <Save />{{ copy.saveDraft }}
             </Button>
@@ -1370,6 +1394,7 @@ const deleteDraftDescriptionLabel = (name: string) =>
             @insert-field="insertPayloadField"
             :preview-html="previewHtml"
             :preview-subject="previewSubject"
+            :preview-sample="draft.rows.length ? draft.sample : undefined"
             @agent="agentOpen = true"
           />
           <div class="editor-status">
@@ -1486,6 +1511,13 @@ const deleteDraftDescriptionLabel = (name: string) =>
         </dl>
       </div>
     </aside>
+    <TestEmailDialog
+      v-model:open="testEmailOpen"
+      :content="testEmailContent"
+      :dark="dark"
+      @saved="emit('saved')"
+      @expired="emit('expired')"
+    />
     <AgentDialog
       :key="draft.id"
       v-model:open="agentOpen"

@@ -156,5 +156,16 @@ export function mergeIssues(
   return issues;
 }
 export function previewDocument(html: string, dark = false): string {
-  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; form-action 'none'; base-uri 'none'"><style>body{margin:24px;font:14px/1.8 system-ui;background:${dark ? "#182131" : "#fff"};color:${dark ? "#e0e7f4" : "#253249"};overflow-wrap:anywhere}img{max-width:100%;height:auto}table{max-width:100%}h1,h2,h3{line-height:1.4}a{color:#3468ed}</style></head><body>${html}</body></html>`;
+  const head = `<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; form-action 'none'; base-uri 'none'"><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{margin:0;font:14px/1.8 system-ui;background:${dark ? "#182131" : "#fff"};color:${dark ? "#e0e7f4" : "#253249"}}</style>`;
+  // Put the isolation policy before user HTML, retaining the document's head
+  // and media queries. Email styles follow the fallback and can override it.
+  const document = html.trim().replace(/^<!doctype[^>]*>\s*/i, "");
+  const root = document.match(
+    /^<html\b(?:[^"'<>]|"[^"]*"|'[^']*')*>\s*(<head\b(?:[^"'<>]|"[^"]*"|'[^']*')*>)?/i,
+  );
+  if (root) {
+    const prefix = root[0];
+    return `<!doctype html>${prefix}${root[1] ? head : `<head>${head}</head>`}${document.slice(prefix.length)}`;
+  }
+  return `<!doctype html><html><head>${head}</head><body>${html}</body></html>`;
 }

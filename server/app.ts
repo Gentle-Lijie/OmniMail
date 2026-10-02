@@ -12,6 +12,7 @@ import { z } from "zod";
 import { createStore, id, hash } from "./store.js";
 import { configureAuth } from "./auth.js";
 import { createTasks, eventSchema } from "./tasks.js";
+import { testEmailPayload } from "./testEmail.js";
 import { createAI, safeURL, ProviderError } from "./ai.js";
 import { createTemplates } from "./templates.js";
 import { readAgentAttachment } from "./agentAttachments.js";
@@ -296,6 +297,12 @@ export async function buildApp(options: AppOptions) {
     })),
   );
   app.post("/api/tasks", async (req) => tasks.create(req.body));
+  app.post("/api/tasks/test-email", async (req) => {
+    const payload = testEmailPayload(req.body);
+    if (!store.get("mailWebhookUrl"))
+      throw Error(serverMessage("tasks.webhookIsNotConfigured"));
+    return tasks.createEmailSnapshot(payload, "web:test-email");
+  });
   app.get<{ Params: { id: string } }>("/api/tasks/:id", async (req) =>
     tasks.get(req.params.id),
   );

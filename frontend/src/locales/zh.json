@@ -118,7 +118,8 @@
     "secureWorkspace": "安全工作空间",
     "mcpService": "MCP 服务",
     "apiKeys": "API 密钥",
-    "newApiKey": "新 API 密钥"
+    "newApiKey": "新 API 密钥",
+    "testEmail": "测试邮件"
   },
   "agentDialog": {
     "uploadAtMost5Attachments": "最多上传 5 个附件。",
@@ -250,7 +251,7 @@
     "englishLanguage": "English",
     "description": "管理接口、AI 提供商与访问安全。",
     "customInstructionsHint": "补充语气、格式和工作规则；不能授予执行权限。",
-    "interfaceTestingHint": "不在此处测试邮件或日程。请到工作台手动填写收件人并走完整确认流程。",
+    "interfaceTestingHint": "请到工作台使用「发送测试邮件」填写测试邮箱；日程测试仍需走完整确认流程。",
     "passkeyDeletionWarning": "删除最后一个 Passkey 可能导致无法登录，服务器会校验操作。"
   },
   "taskContent": {
@@ -393,7 +394,8 @@
     "clearListWarning": "恢复手动收件人；正文不会改变，请处理未替换的字段。",
     "cc": "抄送",
     "bcc": "密送",
-    "agentInterrupted": "已中断，请检查最新保存状态。"
+    "agentInterrupted": "已中断，请检查最新保存状态。",
+    "sendTestEmail": "发送测试邮件"
   },
   "dialogContent": {
     "close": "关闭"
@@ -535,5 +537,41 @@
     "webhookHTTPValue0InspectFlowRunHistory": "Webhook HTTP {value0}，请检查流程运行记录",
     "deliveryResultUnknownInspectFlowRunHistoryBeforeRetrying": "投递结果未知，重试前请检查流程运行记录",
     "serverRestartedDuringRequestInspectFlowHistory": "请求期间服务器重启，请检查流程运行记录"
+  },
+  "mailPreview": {
+    "title": "邮件预览",
+    "device": "预览设备",
+    "desktop": "电脑",
+    "mobile": "手机",
+    "close": "关闭预览",
+    "body": "邮件正文预览",
+    "hint": "浏览器布局预览。Outlook、Gmail 的渲染可能不同，请发送测试邮件确认。外链图片已拦截。",
+    "sample": "第 {row} 行样本 · 打开时的内容快照",
+    "loading": "正在加载预览…",
+    "expired": "预览内容已失效",
+    "reopen": "请回到编辑器重新打开 Preview。刷新此预览时请保持来源标签页打开。",
+    "blocked": "预览标签页被浏览器拦截，请允许此站点打开弹出窗口后重试。",
+    "unavailable": "当前浏览器不支持打开预览，请使用新版浏览器。",
+    "width": "{width} px",
+    "zoom": "显示 {percent}%"
+  },
+  "testEmail": {
+    "title": "发送测试邮件",
+    "description": "将下方内容发送一份到测试邮箱，不使用原 To、CC 或 BCC 收件人，工作草稿保持原样。",
+    "recipient": "测试邮箱地址",
+    "placeholder": "you{'@'}example.com",
+    "singleRecipient": "请输入一个有效的邮箱地址。",
+    "singleMessage": "单封邮件 · 打开时的内容快照",
+    "sample": "第 {row} 行样本 · 打开时的内容快照",
+    "sending": "正在提交测试邮件…",
+    "accepted": "接口已接收测试邮件请求，请检查收件箱确认送达。",
+    "queued": "测试邮件已排队，接口接收不代表送达。",
+    "emptySubject": "请填写主题",
+    "preview": "打开预览",
+    "body": "测试邮件正文",
+    "confirm": "我确认向上述邮箱发送一封测试邮件。",
+    "deliveryHint": "接口接收不代表送达。结果不确定时，请核查 Flow 运行历史后再发起新的测试。",
+    "close": "关闭",
+    "send": "发送测试邮件"
   }
 }

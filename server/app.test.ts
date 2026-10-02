@@ -306,7 +306,9 @@ test("AI protocol drafting verification, model listing and secret-free settings"
   }
   s.db.close();
 });
-async function fixture() {
+async function fixture(
+  fetcher = mock(() => new Response("", { status: 202 })),
+) {
   const f = await buildApp({
     secret,
     setupToken: "test-setup",
@@ -314,7 +316,7 @@ async function fixture() {
     dbPath: ":memory:",
     worker: false,
     staticRoot: "/nonexistent",
-    fetcher: mock(() => new Response("", { status: 202 })),
+    fetcher,
   });
   const sid = "test-session";
   f.store.db
@@ -327,6 +329,166 @@ async function fixture() {
   const headers = { cookie: `omnimail=${sid}`, "x-csrf-token": "csrf" };
   return { ...f, headers };
 }
+test("test email prepares one selected sample and only sends to the test address after confirmation", async () => {
+  const delivered: any[] = [];
+  const { app, store, tasks, headers } = await fixture(
+    mock((_url: any, options: any) => {
+      delivered.push(JSON.parse(options.body).attachments[0].content.email);
+      return new Response("", { status: 202 });
+    }),
+  );
+  store.set("mailWebhookUrl", store.encrypt("https://mock.invalid"));
+  store.set("rateLimitMs", 0);
+  try {
+    const content = {
+      recipient: "Tester <test@example.com>",
+      subject: "Hello {{name}}",
+      html: "<p>{{company}}</p>",
+      row: {
+        full_name: "Second {{literal}}",
+        company: "<Client>",
+        email: "original@example.com",
+      },
+      mapping: { name: "full_name" },
+    };
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/tasks/test-email",
+      headers,
+      payload: content,
+    });
+    assert.equal(res.statusCode, 200, res.body);
+    const task = res.json();
+    assert.equal(task.source, "web:test-email");
+    assert.equal(task.status, "draft");
+    assert.equal(task.total, 1);
+    assert.deepEqual(task.items[0].payload, {
+      to: "test@example.com",
+      cc: "",
+      bcc: "",
+      subject: "Hello Second {{literal}}",
+      html: "<p>&lt;Client&gt;</p>",
+    });
+    assert.deepEqual(content.row, {
+      full_name: "Second {{literal}}",
+      company: "<Client>",
+      email: "original@example.com",
+    });
+    await tasks.run();
+    assert.equal(delivered.length, 0);
+    const confirm = await app.inject({
+      method: "POST",
+      url: `/api/tasks/${task.id}/confirm`,
+      headers,
+      payload: {},
+    });
+    assert.equal(confirm.json().status, "queued");
+    const repeat = await app.inject({
+      method: "POST",
+      url: `/api/tasks/${task.id}/confirm`,
+      headers,
+      payload: {},
+    });
+    assert.equal(repeat.statusCode, 400);
+    await tasks.run();
+    assert.deepEqual(delivered, [task.items[0].payload]);
+    assert.equal(tasks.get(task.id).status, "accepted");
+    assert.equal(
+      (await app.inject({ url: "/api/tasks", headers })).json()[0].source,
+      "web:test-email",
+    );
+  } finally {
+    await app.close();
+  }
+});
+
+test("test email rejects multiple addresses, missing content fields and attempts to include original recipients or batches", async () => {
+  const { app, store, headers, tasks } = await fixture();
+  store.set("mailWebhookUrl", store.encrypt("https://mock.invalid"));
+  try {
+    const base = {
+      recipient: "test@example.com",
+      subject: "Test",
+      html: "<p>Hello</p>",
+    };
+    for (const extra of [
+      { recipient: "test@example.com;other@example.com" },
+      { recipient: "bad@@example.com" },
+      { recipient: "{{email}}" },
+      { subject: "{{missing}}" },
+      {
+        subject: "{{name}}",
+        row: { name: "Existing" },
+        mapping: { name: "missing" },
+      },
+      { html: "{{company}}", row: { company: "" } },
+      { subject: "" },
+      { html: "   " },
+      { to: "original@example.com" },
+      { cc: "original@example.com" },
+      { bcc: "original@example.com" },
+      { rows: [{}, {}] },
+      { kind: "event" },
+    ]) {
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/tasks/test-email",
+        headers,
+        payload: { ...base, ...extra },
+      });
+      assert.equal(res.statusCode, 400, JSON.stringify(extra));
+    }
+    assert.equal(tasks.list().length, 0);
+    const numeric = await app.inject({
+      method: "POST",
+      url: "/api/tasks/test-email",
+      headers,
+      payload: {
+        ...base,
+        subject: "{{amount}}",
+        html: "{{active}}",
+        row: { amount: 0, active: false },
+      },
+    });
+    assert.equal(numeric.statusCode, 200);
+    assert.equal(numeric.json().items[0].payload.subject, "0");
+    assert.equal(numeric.json().items[0].payload.html, "false");
+  } finally {
+    await app.close();
+  }
+});
+
+test("test email requires authentication, CSRF and a configured mail webhook", async () => {
+  const { app, headers, tasks } = await fixture();
+  try {
+    const request = {
+      method: "POST" as const,
+      url: "/api/tasks/test-email",
+      payload: { recipient: "test@example.com", subject: "Test", html: "Body" },
+    };
+    assert.equal((await app.inject(request)).statusCode, 401);
+    assert.equal(
+      (await app.inject({ ...request, headers: { cookie: headers.cookie } }))
+        .statusCode,
+      403,
+    );
+    assert.equal(
+      (
+        await app.inject({
+          ...request,
+          headers: { ...headers, origin: "https://evil.invalid" },
+        })
+      ).statusCode,
+      403,
+    );
+    const unconfigured = await app.inject({ ...request, headers });
+    assert.equal(unconfigured.statusCode, 400);
+    assert.match(unconfigured.json().error, /Webhook/);
+    assert.equal(tasks.list().length, 0);
+  } finally {
+    await app.close();
+  }
+});
 test("API authentication, CSRF, origin and first setup are enforced", async () => {
   const { app, headers } = await fixture();
   try {

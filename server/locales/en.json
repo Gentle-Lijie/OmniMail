@@ -115,7 +115,9 @@
     "deliveryResultUnknownInspectFlowRunHistoryBeforeRetrying": "Delivery result unknown; inspect flow run history before retrying",
     "serverRestartedDuringRequestInspectFlowHistory": "Server restarted during request; inspect flow history",
     "onlyDraftTasksMayBeConfirmed": "Only draft tasks may be confirmed",
-    "taskCannotBeCancelled": "Task cannot be cancelled"
+    "taskCannotBeCancelled": "Task cannot be cancelled",
+    "testEmailSingleRecipient": "Test email requires exactly one valid recipient address",
+    "testEmailBodyRequired": "Email body is required"
   },
   "mcp": {
     "sendEmail": "Send Outlook email immediately (no human approval); returns queued task. Acceptance does not prove delivery.",

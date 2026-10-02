@@ -7,13 +7,14 @@ import {
   defineAsyncComponent,
   onErrorCaptured,
 } from "vue";
-import { Code, Eye, PenLine, Plus } from "lucide-vue-next";
+import { Code, Eye, ExternalLink, PenLine, Plus } from "lucide-vue-next";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import AppSelect from "./ui/AppSelect.vue";
-import { escapeHtml, previewDocument } from "@/lib/mailMerge";
-import { useFeedback } from "@/lib/notifications";
+import { escapeHtml } from "@/lib/mailMerge";
+import { openMailPreview } from "@/lib/preview";
+import { useFeedback, notify } from "@/lib/notifications";
 
 const copy = useMessages("htmlEditor");
 const RichEditor = defineAsyncComponent(() => import("./RichEditor.vue"));
@@ -25,6 +26,7 @@ const props = defineProps<{
   fill?: boolean;
   previewHtml?: string;
   previewSubject?: string;
+  previewSample?: number;
   fieldTarget?: string;
   fieldTargets?: { value: string; label: string; disabled?: boolean }[];
 }>();
@@ -77,7 +79,6 @@ async function insert(field: string) {
     emit("insert-field", field);
     return;
   }
-  if (tab.value === "preview") tab.value = richFailed.value ? "source" : "rich";
   await nextTick();
   if (tab.value === "rich") {
     rich.value?.insert(field);
@@ -97,6 +98,20 @@ onErrorCaptured(() => {
   tab.value = "source";
   return false;
 });
+function preview() {
+  try {
+    openMailPreview({
+      subject: props.previewSubject || "",
+      html: props.previewHtml ?? model.value,
+      sample: props.previewSample,
+      dark: props.dark,
+    });
+  } catch (error) {
+    notify.error({
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
 </script>
 <template>
   <div class="html-editor" :class="{ 'html-editor-fill': fill }">
@@ -109,9 +124,14 @@ onErrorCaptured(() => {
           ><PenLine :size="14" />{{ copy.tinyMce }}</TabsTrigger
         ><TabsTrigger value="source"
           ><Code :size="14" />{{ copy.rawHtml }}</TabsTrigger
-        ><TabsTrigger value="preview"
-          ><Eye :size="14" />{{ copy.preview }}</TabsTrigger
         ></TabsList
+      ><Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        :disabled="disabled"
+        @click="preview"
+        ><Eye :size="14" />{{ copy.preview }}<ExternalLink :size="12" /></Button
       ><span class="muted text-xs">{{
         copy.highlightedFieldsClickToInsert
       }}</span></Tabs
@@ -172,17 +192,6 @@ onErrorCaptured(() => {
         @select="remember"
         @blur="remember"
         @scroll="syncScroll"
-      />
-    </div>
-    <div v-if="tab === 'preview'" class="preview-surface">
-      <p v-if="previewSubject" class="preview-subject">
-        {{ copy.subject }}: {{ previewSubject }}
-      </p>
-      <iframe
-        sandbox=""
-        referrerpolicy="no-referrer"
-        :title="copy.sandboxedHtmlPreview"
-        :srcdoc="previewDocument(previewHtml ?? model)"
       />
     </div>
   </div>

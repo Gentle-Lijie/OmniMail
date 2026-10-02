@@ -146,7 +146,7 @@ export function createTasks(store: Store, fetcher: typeof fetch = fetch) {
         .prepare("SELECT value FROM tasks ORDER BY createdAt DESC LIMIT 500")
         .all() as any[]
     ).map((r) => JSON.parse(r.value));
-  const create = (body: any, source = "web") => {
+  const create = (body: any, source = "web", rendered = false) => {
     const schema = z.object({
       kind: z.enum(["email", "event"]),
       payload: z.record(z.any()),
@@ -166,7 +166,7 @@ export function createTasks(store: Store, fetcher: typeof fetch = fetch) {
     const items = rows.map((row) => {
       const payload = validatePayload(
         input.kind,
-        renderPayload(input.payload, row),
+        rendered ? input.payload : renderPayload(input.payload, row),
       );
       renderedBytes += Buffer.byteLength(JSON.stringify(payload));
       if (renderedBytes > 10 * 1024 * 1024)
@@ -359,7 +359,15 @@ export function createTasks(store: Store, fetcher: typeof fetch = fetch) {
   return {
     get,
     list,
-    create,
+    create: (body: any, source = "web") => create(body, source),
+    // Test content has already been rendered. Treat placeholder-like text from
+    // a sample value as literal content rather than interpolating it again.
+    createEmailSnapshot: (payload: unknown, source: string) =>
+      create(
+        { kind: "email", payload: emailSchema.parse(payload) },
+        source,
+        true,
+      ),
     confirm,
     cancel,
     start,

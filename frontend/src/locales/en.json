@@ -118,7 +118,8 @@
     "secureWorkspace": "SECURE WORKSPACE",
     "mcpService": "MCP service",
     "apiKeys": "API keys",
-    "newApiKey": "New API key"
+    "newApiKey": "New API key",
+    "testEmail": "Test email"
   },
   "agentDialog": {
     "uploadAtMost5Attachments": "Upload at most 5 attachments.",
@@ -250,7 +251,7 @@
     "englishLanguage": "English",
     "description": "Manage integrations, AI providers and access security.",
     "customInstructionsHint": "Tone, format and workspace rules; cannot grant execution permission.",
-    "interfaceTestingHint": "No mail/calendar tests here. Enter recipients in Workspace and complete the confirmation flow.",
+    "interfaceTestingHint": "Use Send test email in the workspace to enter a test address. Calendar tests still require the full confirmation flow.",
     "passkeyDeletionWarning": "Deleting your last passkey may lock you out; server validation applies."
   },
   "taskContent": {
@@ -393,7 +394,8 @@
     "clearListWarning": "Restores manual recipients. Content is unchanged; handle any unresolved fields.",
     "cc": "CC",
     "bcc": "BCC",
-    "agentInterrupted": "Interrupted; check the latest saved state."
+    "agentInterrupted": "Interrupted; check the latest saved state.",
+    "sendTestEmail": "Send test email"
   },
   "dialogContent": {
     "close": "Close"
@@ -535,5 +537,41 @@
     "webhookHTTPValue0InspectFlowRunHistory": "Webhook HTTP {value0}; inspect flow run history",
     "deliveryResultUnknownInspectFlowRunHistoryBeforeRetrying": "Delivery result unknown; inspect flow run history before retrying",
     "serverRestartedDuringRequestInspectFlowHistory": "Server restarted during request; inspect flow history"
+  },
+  "mailPreview": {
+    "title": "Email preview",
+    "device": "Preview device",
+    "desktop": "Desktop",
+    "mobile": "Mobile",
+    "close": "Close preview",
+    "body": "Email body preview",
+    "hint": "Browser layout preview. Outlook and Gmail may render differently; send a test email to verify. External images are blocked.",
+    "sample": "Sample row {row} · Snapshot at opening",
+    "loading": "Loading preview…",
+    "expired": "Preview content is unavailable",
+    "reopen": "Return to the editor and open Preview again. Keep the source tab open when refreshing this preview.",
+    "blocked": "The preview tab was blocked. Allow popups for this site and try again.",
+    "unavailable": "This browser does not support opening a preview. Please use a current browser.",
+    "width": "{width} px",
+    "zoom": "View {percent}%"
+  },
+  "testEmail": {
+    "title": "Send test email",
+    "description": "Send one copy of the content below to your test address. Original To, CC and BCC recipients are excluded. The working draft stays unchanged.",
+    "recipient": "Test email address",
+    "placeholder": "you{'@'}example.com",
+    "singleRecipient": "Enter exactly one valid email address.",
+    "singleMessage": "Single email · Snapshot at opening",
+    "sample": "Sample row {row} · Snapshot at opening",
+    "sending": "Submitting test email…",
+    "accepted": "The interface accepted the test email request. Check the recipient inbox for delivery.",
+    "queued": "Test email queued. Interface acceptance does not mean delivery.",
+    "emptySubject": "Subject is required",
+    "preview": "Open preview",
+    "body": "Test email body",
+    "confirm": "I confirm sending one test email to the address above.",
+    "deliveryHint": "Acceptance does not prove delivery. For an uncertain result, inspect Flow history before starting another test.",
+    "close": "Close",
+    "send": "Send test email"
   }
 }
