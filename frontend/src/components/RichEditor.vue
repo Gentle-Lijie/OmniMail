@@ -64,6 +64,8 @@ const init = computed<RawEditorOptions>(() => ({
   content_css: false,
   content_style: contentStyle(),
   plugins: "link lists",
+  paste_data_images: true,
+  automatic_uploads: false,
   toolbar: "undo redo | bold italic | bullist numlist | link | mergefields",
   promotion: false,
   branding: false,
@@ -73,6 +75,25 @@ const init = computed<RawEditorOptions>(() => ({
   setup(instance) {
     editor = instance;
     bookmark = undefined;
+    instance.on("PreInit", () => {
+      // TinyMCE's parser and scanner turn embedded images into blob URLs,
+      // which the editor's CSP does not allow. Keep data URLs in the DOM too.
+      instance.editorUpload.addFilter(() => false);
+      instance.parser.addAttributeFilter("src", (images) => {
+        images.forEach((image) => {
+          if (image.name !== "img") return;
+          const src = image.attr("src");
+          const blob = src && instance.editorUpload.blobCache.getByUri(src);
+          if (blob) {
+            image.attr(
+              "src",
+              `data:${blob.blob().type};base64,${blob.base64()}`,
+            );
+            image.attr("data-mce-src", null);
+          }
+        });
+      });
+    });
     instance.ui.registry.addMenuButton("mergefields", {
       text: copy.value.mergeFields,
       fetch(callback) {

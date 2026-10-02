@@ -12,6 +12,8 @@ Development proxies `/api` and `/mcp` to `http://localhost:3000`; production exp
 
 TinyMCE is bundled from npm under `license_key: 'gpl'`, loaded on demand, with locally imported icons, theme, model, plugins and CSS. No cloud script or API key is used. Review GPL obligations when distributing. The source editor is always available; preview uses sandbox + CSP blocking scripts and remote content. External preview images intentionally do not load.
 
+Images pasted from the clipboard (including screenshots) are embedded as base64 data URLs, without uploading them. TinyMCE, Raw HTML and the sandboxed preview share the embedded image content. Remote image URLs are not fetched or converted.
+
 All displayed records and metrics come from API responses. No demo mode or fabricated send success is shipped. `accepted` means the webhook/interface accepted the request, never proof of delivery. Calendar datetime-local values are Beijing wall time without a Z suffix. Tasks are created as drafts; only an explicit confirmation queues execution. Tests use the same confirmation path and never preset recipients.
 
 AI receives the current draft and redacted row samples; imported rows are sent intact only to the task API. Credentials are not placed in local/session storage. MCP keys are displayed once and erased when navigating away; MCP tools bypass human confirmation, with a visible warning.
