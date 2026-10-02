@@ -59,6 +59,8 @@ const transcript = ref<HTMLElement>();
 const uploading = ref(false);
 const expanded = ref(true);
 let uploadController: AbortController | undefined;
+const toolLabel = (name: string) =>
+  (copy.value.tools as Record<string, string>)[name] || name;
 const stageLabel = (stage: string) =>
   copy.value.stages[stage as keyof typeof copy.value.stages] || stage;
 watch(
@@ -66,6 +68,10 @@ watch(
     props.conversation.length,
     props.conversation.at(-1)?.thinking?.length,
     props.conversation.at(-1)?.stages?.length,
+    props.conversation
+      .at(-1)
+      ?.toolCalls?.map((call) => call.status)
+      .join(),
     props.busy,
   ],
   async () => {
@@ -289,6 +295,35 @@ function openChanged(open: boolean) {
               {{ copy.missingThinkingHint }}
             </p>
           </details>
+          <ol
+            v-if="entry.toolCalls?.length"
+            class="my-2 space-y-2 rounded-xl border p-3 text-xs"
+            :aria-label="copy.toolOperations"
+          >
+            <li
+              v-for="call in entry.toolCalls"
+              :key="call.callId"
+              class="flex items-start gap-2"
+            >
+              <LoaderCircle
+                v-if="call.status === 'running'"
+                :size="13"
+                class="mt-1 shrink-0 animate-spin"
+              />
+              <Check
+                v-else-if="call.status === 'complete'"
+                :size="13"
+                class="mt-1 shrink-0"
+              />
+              <X v-else :size="13" class="mt-1 shrink-0 text-destructive" />
+              <span class="min-w-0 break-words"
+                ><strong>{{ toolLabel(call.name) }}</strong
+                ><span v-if="call.summary" class="ml-2 text-muted-foreground">{{
+                  call.summary
+                }}</span></span
+              >
+            </li>
+          </ol>
           <p
             v-if="entry.content"
             class="whitespace-pre-wrap break-words text-sm leading-5"

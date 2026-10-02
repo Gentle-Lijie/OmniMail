@@ -126,7 +126,7 @@
     "useTextPDFDOCXExcelOrPNGJPEGWebPImages": "Use text, PDF, DOCX, Excel or PNG/JPEG/WebP images.",
     "attachmentTextCannotExceed200000Characters": "Attachment text cannot exceed 200,000 characters.",
     "omniMailAgent": "OmniMail Agent",
-    "draftingOnlyNeverSends": "Drafting only; never sends",
+    "draftingOnlyNeverSends": "Manage templates and drafts; execution requires your confirmation",
     "agentConversation": "Agent conversation",
     "startWithAnIdea": "Start with an idea",
     "letSRefineThisDraft": "Let's refine this draft",
@@ -150,8 +150,8 @@
     "attachFiles": "Attach files",
     "enterToSendShiftEnterForNewline": "Enter to send · Shift+Enter for newline",
     "stopGeneration": "Stop generation",
-    "sendFollowUp": "Send follow-up",
-    "generateDraftSuggestion": "Generate draft suggestion",
+    "sendFollowUp": "Send instruction",
+    "generateDraftSuggestion": "Run instruction",
     "aISettings": "AI settings",
     "stages": {
       "context": "Preparing draft, conversation and attachments",
@@ -163,7 +163,33 @@
     "conversationHint": "Describe your goal, context and tone, or attach reference files. No template needed; review the subject and body before applying.",
     "missingThinkingHint": "This provider returned no thinking summary; the stages above reflect actual processing.",
     "attachmentHelp": "Text, PDF, DOCX, Excel and images; up to 5 files, 5 MB each, 10 MB total, including 3 MB of images.",
-    "aiPrivacyHint": "Conversation, draft and attachments go to your configured AI. Applying only updates subject and body; no mail is sent."
+    "aiPrivacyHint": "Drafts and references go to your AI. Requested tool edits take effect; sending requires your confirmation.",
+    "tools": {
+      "list_templates": "Search templates",
+      "get_template": "Read template",
+      "create_template": "Create template",
+      "update_template": "Update template",
+      "delete_template": "Delete template",
+      "list_template_versions": "Read template versions",
+      "rollback_template": "Restore template version",
+      "get_current_draft": "Read current draft",
+      "update_current_draft": "Edit current draft",
+      "apply_template": "Apply template",
+      "save_draft": "Save draft",
+      "preview_draft": "Preview draft",
+      "get_batch_schema": "Read batch structure",
+      "set_field_mapping": "Update field mappings",
+      "validate_draft": "Validate draft and batch",
+      "get_batch_row": "Read batch row",
+      "list_tasks": "Search tasks",
+      "get_task": "Read task",
+      "cancel_task": "Cancel remaining items",
+      "prepare_execution": "Prepare execution review",
+      "request_execution_confirmation": "Open human confirmation",
+      "read_attachment": "Read reference attachment",
+      "search_attachment": "Search reference attachments"
+    },
+    "toolOperations": "Tool operations"
   },
   "fieldInput": {
     "remove": "Remove"
@@ -257,7 +283,7 @@
     "listRemovedRestoredASingleTask": "List removed. Restored a single task.",
     "confirmTheRecipientColumnFirst": "Confirm the recipient column first.",
     "draftSavedToTheServerNotExecuted": "Draft saved to the server. Not executed.",
-    "generationStoppedYourDraftIsUnchanged": "Generation stopped. Your draft is unchanged.",
+    "generationStoppedYourDraftIsUnchanged": "Generation stopped. Completed tool operations are retained.",
     "taskSpace": "Task space",
     "newDraft": "New draft",
     "searchDrafts": "Search drafts",
@@ -358,15 +384,16 @@
     "issuesFound": "{count} issues found. Check content and data.",
     "deleteDraftDescription": "Removes “{name}” and its unsaved edits. This cannot be undone. Saved server drafts remain available in History.",
     "importSuccess": "Imported. Confirm the recipient column before inserting fields.",
-    "invalidAiDraft": "AI draft type or format does not match. No changes applied.",
+    "invalidAiDraft": "AI returned an invalid suggestion. Completed tool operations are retained.",
     "proposalApplied": "Subject and body applied. Recipients unchanged. Review before execution.",
     "batchValidationSuccess": "All rows and recipients validated. Human review is still required.",
     "importHelp": "CSV / Excel, up to 5 MB and 1,000 rows. No list means a single task.",
-    "aiPrivacyHint": "Only column names and redacted samples are shared. Conversation and current content go to your configured AI.",
+    "aiPrivacyHint": "Batch rows remain server-side and tools read relevant rows on demand. Drafts and references go to your AI.",
     "applyTemplateWarning": "Replaces subject and body only. Recipients, event details and imported data stay unchanged. Existing content will be overwritten.",
     "clearListWarning": "Restores manual recipients. Content is unchanged; handle any unresolved fields.",
     "cc": "CC",
-    "bcc": "BCC"
+    "bcc": "BCC",
+    "agentInterrupted": "Interrupted; check the latest saved state."
   },
   "dialogContent": {
     "close": "Close"

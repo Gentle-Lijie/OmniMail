@@ -126,7 +126,7 @@
     "useTextPDFDOCXExcelOrPNGJPEGWebPImages": "支持文本、PDF、DOCX、Excel 和 PNG/JPEG/WebP 图片。",
     "attachmentTextCannotExceed200000Characters": "附件文本总计不能超过 200,000 字符。",
     "omniMailAgent": "OmniMail Agent",
-    "draftingOnlyNeverSends": "只起草，不发送",
+    "draftingOnlyNeverSends": "管理模板与草稿，执行须由你确认",
     "agentConversation": "Agent 对话",
     "startWithAnIdea": "从一个想法开始",
     "letSRefineThisDraft": "一起完善这份草稿",
@@ -150,8 +150,8 @@
     "attachFiles": "上传文件",
     "enterToSendShiftEnterForNewline": "Enter 发送 · Shift+Enter 换行",
     "stopGeneration": "停止生成",
-    "sendFollowUp": "发送修改要求",
-    "generateDraftSuggestion": "生成起草建议",
+    "sendFollowUp": "发送指令",
+    "generateDraftSuggestion": "执行指令",
     "aISettings": "AI 配置",
     "stages": {
       "context": "整理草稿、对话和附件上下文",
@@ -163,7 +163,33 @@
     "conversationHint": "告诉我目的、背景和语气，也可以上传参考资料。无需模板，我会准备主题与正文供你审核。",
     "missingThinkingHint": "该服务商未返回思考摘要；以上为真实处理阶段。",
     "attachmentHelp": "支持文本、PDF、DOCX、Excel 和图片；最多 5 个文件，每个 5 MB，总计 10 MB，图片合计 3 MB。",
-    "aiPrivacyHint": "对话、正文和附件会交给已配置的 AI。应用仅更新主题与正文，不发送邮件。"
+    "aiPrivacyHint": "草稿和参考资料会交给你的 AI；所请求的工具修改会生效，发送须由你确认。",
+    "tools": {
+      "list_templates": "查询模板",
+      "get_template": "读取模板",
+      "create_template": "创建模板",
+      "update_template": "修改模板",
+      "delete_template": "删除模板",
+      "list_template_versions": "读取模板版本",
+      "rollback_template": "恢复模板版本",
+      "get_current_draft": "读取当前草稿",
+      "update_current_draft": "修改当前草稿",
+      "apply_template": "应用模板",
+      "save_draft": "保存草稿",
+      "preview_draft": "预览草稿",
+      "get_batch_schema": "读取名单结构",
+      "set_field_mapping": "修改字段映射",
+      "validate_draft": "校验草稿与批次",
+      "get_batch_row": "读取名单行",
+      "list_tasks": "查询任务",
+      "get_task": "读取任务",
+      "cancel_task": "停止未执行条目",
+      "prepare_execution": "准备执行审核",
+      "request_execution_confirmation": "打开人工确认",
+      "read_attachment": "读取参考附件",
+      "search_attachment": "检索参考附件"
+    },
+    "toolOperations": "工具操作"
   },
   "fieldInput": {
     "remove": "移除"
@@ -257,7 +283,7 @@
     "listRemovedRestoredASingleTask": "已移除名单，恢复为单次任务。",
     "confirmTheRecipientColumnFirst": "请先确认名单的收件人列。",
     "draftSavedToTheServerNotExecuted": "草稿已保存到服务器，尚未执行。",
-    "generationStoppedYourDraftIsUnchanged": "已停止生成，当前草稿未改变。",
+    "generationStoppedYourDraftIsUnchanged": "已停止生成，已完成的工具操作仍然保留。",
     "taskSpace": "任务空间",
     "newDraft": "新建草稿",
     "searchDrafts": "搜索草稿",
@@ -358,15 +384,16 @@
     "issuesFound": "发现 {count} 处问题，请检查正文和名单。",
     "deleteDraftDescription": "将移除「{name}」及其未保存的编辑，删除后无法恢复。已保存的服务器草稿仍可在历史中查看。",
     "importSuccess": "名单已导入。请先确认收件人列，再插入字段。",
-    "invalidAiDraft": "AI 返回的草稿类型或格式不匹配，未应用任何更改。",
+    "invalidAiDraft": "AI 返回的建议格式无效，已完成的工具操作仍然保留。",
     "proposalApplied": "主题与正文已应用。收件人未改变，请检查后审核。",
     "batchValidationSuccess": "整批字段与收件人校验通过；执行前仍需人工审核。",
     "importHelp": "支持 CSV / Excel，最多 5 MB、1000 行。未导入时为单次任务。",
-    "aiPrivacyHint": "名单只发送列名与脱敏样本；对话及当前正文会交给你配置的 AI。",
+    "aiPrivacyHint": "名单保留在服务端，工具按需读取相关行；草稿和参考资料会交给你的 AI。",
     "applyTemplateWarning": "仅替换当前主题和正文，收件人、日程信息与名单保持不变。现有正文将被覆盖。",
     "clearListWarning": "恢复手动收件人；正文不会改变，请处理未替换的字段。",
     "cc": "抄送",
-    "bcc": "密送"
+    "bcc": "密送",
+    "agentInterrupted": "已中断，请检查最新保存状态。"
   },
   "dialogContent": {
     "close": "关闭"

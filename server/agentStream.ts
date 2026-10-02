@@ -1,9 +1,6 @@
 import { serverMessage } from "./i18n.js";
-export interface AgentProgress {
-  type: "progress" | "thinking";
-  stage?: "context" | "model" | "drafting" | "validating";
-  text?: string;
-}
+import type { AgentProgress } from "./agentTypes.js";
+export type { AgentProgress } from "./agentTypes.js";
 
 export async function readProviderStream(
   response: Response,
@@ -26,6 +23,7 @@ export async function readProviderStream(
         ? { content: [] }
         : { output: [] };
   const toolArguments = new Map<number, string>();
+  const chatCalls = new Map<number, any>();
   const thinking = (value: unknown) => {
     if (typeof value !== "string" || !value) return;
     const chunk = value.slice(0, Math.max(0, 20000 - reasoningLength));
@@ -54,7 +52,28 @@ export async function readProviderStream(
         event.choices?.find((item: any) => item.index === 0) ??
         event.choices?.[0];
       if (!choice) return;
-      thinking(choice.delta?.reasoning_content ?? choice.delta?.reasoning);
+      const reasoning =
+        choice.delta?.reasoning_content ?? choice.delta?.reasoning;
+      thinking(reasoning);
+      if (typeof reasoning === "string")
+        data.choices[0].message.reasoning_content =
+          (data.choices[0].message.reasoning_content ?? "") + reasoning;
+      for (const delta of choice.delta?.tool_calls ?? []) {
+        const call = chatCalls.get(delta.index) ?? {
+          id: "",
+          type: "function",
+          function: { name: "", arguments: "" },
+        };
+        if (delta.id) call.id += delta.id;
+        if (delta.function?.name) call.function.name += delta.function.name;
+        if (delta.function?.arguments)
+          call.function.arguments += delta.function.arguments;
+        chatCalls.set(delta.index, call);
+      }
+      if (chatCalls.size)
+        data.choices[0].message.tool_calls = [...chatCalls.entries()]
+          .sort(([a], [b]) => a - b)
+          .map(([, call]) => call);
       if (typeof choice.delta?.content === "string") {
         text += choice.delta.content;
         emit({ type: "progress", stage: "drafting" });
@@ -72,8 +91,13 @@ export async function readProviderStream(
         data.content[event.index] = { ...event.content_block };
       if (event.type === "content_block_delta") {
         const block = data.content[event.index];
-        if (event.delta?.type === "thinking_delta")
+        if (event.delta?.type === "thinking_delta") {
           thinking(event.delta.thinking);
+          if (block)
+            block.thinking = (block.thinking ?? "") + event.delta.thinking;
+        }
+        if (event.delta?.type === "signature_delta" && block)
+          block.signature = (block.signature ?? "") + event.delta.signature;
         if (event.delta?.type === "text_delta" && block) {
           block.text = (block.text ?? "") + event.delta.text;
           emit({ type: "progress", stage: "drafting" });

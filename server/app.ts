@@ -13,6 +13,7 @@ import { createStore, id, hash } from "./store.js";
 import { configureAuth } from "./auth.js";
 import { createTasks, eventSchema } from "./tasks.js";
 import { createAI, safeURL, ProviderError } from "./ai.js";
+import { createTemplates } from "./templates.js";
 import { readAgentAttachment } from "./agentAttachments.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -140,142 +141,104 @@ export async function buildApp(options: AppOptions) {
     if (!file) throw Error(serverMessage("app.fileRequired"));
     return readAgentAttachment(file.filename, await file.toBuffer());
   });
-  app.post("/api/agent", async (req, reply) => {
-    if (!req.headers.accept?.includes("text/event-stream"))
-      return ai.agent(req.body);
-    const stream = new PassThrough();
-    const controller = new AbortController();
-    let lastStage = "";
-    const emit = (event: Record<string, unknown>) => {
-      if (stream.destroyed || controller.signal.aborted) return;
-      if (event.type === "progress") {
-        if (event.stage === lastStage) return;
-        lastStage = String(event.stage);
-      }
-      stream.write(`data: ${JSON.stringify(event)}\n\n`);
-    };
-    const heartbeat = setInterval(() => {
-      if (!stream.destroyed) stream.write(": heartbeat\n\n");
-    }, 10000);
-    reply.raw.on("close", () => {
-      controller.abort();
-      clearInterval(heartbeat);
-      stream.destroy();
-    });
-    reply
-      .header("Content-Type", "text/event-stream; charset=utf-8")
-      .header("X-Accel-Buffering", "no");
-    void ai
-      .agent(req.body, {
-        onProgress: (event) => emit({ ...event }),
-        signal: controller.signal,
-      })
-      .then((result) => emit({ type: "result", result }))
-      .catch((error) => {
-        const message =
-          error instanceof ProviderError
-            ? error.message
-            : error instanceof z.ZodError
-              ? serverMessage("app.invalidAgentRequestOrAttachments")
-              : serverMessage(
-                  "app.agentRequestFailedCheckInputAndConfiguration",
-                );
-        emit({
-          type: "error",
-          error: message,
-          ...(error instanceof ProviderError ? { code: error.code } : {}),
+  app.post(
+    "/api/agent",
+    { bodyLimit: 16 * 1024 * 1024 },
+    async (req, reply) => {
+      if (!req.headers.accept?.includes("text/event-stream"))
+        return ai.agent(req.body, {
+          principal: hash(req.cookies.omnimail || ""),
         });
-      })
-      .finally(() => {
+      const stream = new PassThrough();
+      const controller = new AbortController();
+      let lastStage = "";
+      const emit = (event: Record<string, unknown>) => {
+        if (stream.destroyed || controller.signal.aborted) return;
+        if (event.type === "progress") {
+          if (event.stage === lastStage) return;
+          lastStage = String(event.stage);
+        }
+        stream.write(`data: ${JSON.stringify(event)}\n\n`);
+      };
+      const heartbeat = setInterval(() => {
+        if (!stream.destroyed) stream.write(": heartbeat\n\n");
+      }, 10000);
+      reply.raw.on("close", () => {
+        controller.abort();
         clearInterval(heartbeat);
-        stream.end();
+        stream.destroy();
       });
-    return reply.send(stream);
-  });
-  const templateSchema = z.object({
-    name: z.string().trim().min(1).max(200),
-    description: z.string().max(2000).default(""),
-    kind: z.enum(["email", "event"]),
-    subject: z.string().max(998).default(""),
-    html: z.string().max(500000).default(""),
-    fields: z
-      .array(z.string().regex(/^[\w.-]+$/))
-      .max(100)
-      .default([]),
-  });
-  const templates = () =>
-    (db.prepare("SELECT value FROM templates").all() as any[]).map((r) =>
-      JSON.parse(r.value),
-    );
-  const templateGet = (templateId: string) => {
-    const r = db
-      .prepare("SELECT value FROM templates WHERE id=?")
-      .get(templateId) as any;
-    if (!r) throw new Error(serverMessage("app.templateNotFound"));
-    return JSON.parse(r.value);
-  };
-  const templateSave = (body: any, templateId = id(), version = 1) => {
-    const value = {
-      ...templateSchema.parse(body),
-      id: templateId,
-      version,
-      createdAt: new Date().toISOString(),
-    };
-    db.transaction(() => {
-      db.prepare("INSERT OR REPLACE INTO templates VALUES (?,?)").run(
-        templateId,
-        JSON.stringify(value),
-      );
-      db.prepare("INSERT INTO template_versions VALUES (?,?,?)").run(
-        templateId,
-        version,
-        JSON.stringify(value),
-      );
-    })();
-    store.audit("template.saved");
-    return value;
-  };
-  app.get("/api/templates", async () => templates());
-  app.post("/api/templates", async (req) => templateSave(req.body));
-  app.put<{ Params: { id: string } }>("/api/templates/:id", async (req) =>
-    templateSave(
-      req.body,
-      req.params.id,
-      templateGet(req.params.id).version + 1,
-    ),
+      reply
+        .header("Content-Type", "text/event-stream; charset=utf-8")
+        .header("X-Accel-Buffering", "no");
+      void ai
+        .agent(req.body, {
+          onProgress: (event) => emit({ ...event }),
+          principal: hash(req.cookies.omnimail || ""),
+          signal: controller.signal,
+        })
+        .then((result) => emit({ type: "result", result }))
+        .catch((error) => {
+          const message =
+            error instanceof ProviderError
+              ? error.message
+              : error instanceof z.ZodError
+                ? serverMessage("app.invalidAgentRequestOrAttachments")
+                : serverMessage(
+                    "app.agentRequestFailedCheckInputAndConfiguration",
+                  );
+          emit({
+            type: "error",
+            error: message,
+            ...(error instanceof ProviderError ? { code: error.code } : {}),
+          });
+        })
+        .finally(() => {
+          clearInterval(heartbeat);
+          stream.end();
+        });
+      return reply.send(stream);
+    },
   );
+  const templateService = createTemplates(store);
+  const templates = () => templateService.list();
+  app.get("/api/templates", async () => templates());
+  app.get<{ Params: { id: string } }>("/api/templates/:id", async (req) =>
+    templateService.get(req.params.id),
+  );
+  app.post("/api/templates", async (req) => templateService.create(req.body));
+  app.put<{ Params: { id: string } }>("/api/templates/:id", async (req) => {
+    const {
+      expectedVersion,
+      id: _id,
+      version: _version,
+      createdAt: _date,
+      ...body
+    } = z
+      .object({ expectedVersion: z.number().int().positive().optional() })
+      .passthrough()
+      .parse(req.body);
+    return templateService.update(req.params.id, body, expectedVersion);
+  });
   app.delete<{ Params: { id: string } }>("/api/templates/:id", async (req) => {
-    db.prepare("DELETE FROM templates WHERE id=?").run(req.params.id);
+    templateService.remove(req.params.id);
     return { ok: true };
   });
   app.get<{ Params: { id: string } }>(
     "/api/templates/:id/versions",
-    async (req) =>
-      (
-        db
-          .prepare(
-            "SELECT value FROM template_versions WHERE templateId=? ORDER BY version DESC",
-          )
-          .all(req.params.id) as any[]
-      ).map((r) => JSON.parse(r.value)),
+    async (req) => templateService.versions(req.params.id),
   );
   app.post<{ Params: { id: string } }>(
     "/api/templates/:id/rollback",
     async (req) => {
-      const version = z
-        .object({ version: z.number().int().positive() })
-        .parse(req.body).version;
-      const row = db
-        .prepare(
-          "SELECT value FROM template_versions WHERE templateId=? AND version=?",
-        )
-        .get(req.params.id, version) as any;
-      if (!row) throw new Error(serverMessage("app.versionNotFound"));
-      return templateSave(
-        JSON.parse(row.value),
-        req.params.id,
-        templateGet(req.params.id).version + 1,
-      );
+      const { version, expectedVersion } = z
+        .object({
+          version: z.number().int().positive(),
+          expectedVersion: z.number().int().positive().optional(),
+        })
+        .strict()
+        .parse(req.body);
+      return templateService.rollback(req.params.id, version, expectedVersion);
     },
   );
   app.post("/api/import", async (req) => {

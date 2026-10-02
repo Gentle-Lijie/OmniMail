@@ -157,14 +157,19 @@ test("native image context is encoded for all three protocols with JSON fallback
     }
   }
 });
-test("Agent sends document context and streams provider thinking without executing tasks", async () => {
+test("Agent sends attachment index for on-demand reads and streams provider thinking without executing tasks", async () => {
   const store = createStore(":memory:", secret);
   const progress: unknown[] = [];
   const ai = createAI(store, (async (_url, options) => {
     const body = JSON.parse(String(options?.body));
     assert.equal(body.stream, true);
     const context = JSON.parse(body.messages[1].content);
-    assert.equal(context.documents[0].text, "项目背景");
+    assert.equal(context.attachments[0].name, "brief.txt");
+    assert.ok(context.attachments[0].id);
+    assert.equal(context.documents, undefined);
+    assert.ok(
+      body.tools.some((tool: any) => tool.function.name === "read_attachment"),
+    );
     assert.equal(context.request.payload.to, "original@example.com");
     return chat();
   }) as typeof fetch);

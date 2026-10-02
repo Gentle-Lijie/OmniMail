@@ -51,7 +51,7 @@ import {
   type Template,
   type Task,
 } from "@/lib/api";
-import type { AgentAttachment } from "@/lib/agent";
+import type { AgentAttachment, AgentWorkspace } from "@/lib/agent";
 import {
   fieldsIn,
   mappedRows,
@@ -91,9 +91,14 @@ interface Proposal {
   kind: Kind;
   payload: Payload;
   mapping?: Record<string, string>;
+  workspace?: AgentWorkspace;
+  workspaceChanged?: boolean;
+  reviewTaskId?: string;
+  hasSuggestion?: boolean;
 }
 interface Draft {
   id: string;
+  revision: number;
   title: string;
   kind: Kind;
   payload: Payload;
@@ -118,6 +123,7 @@ interface Draft {
 function blank(kind: Kind): Draft {
   return {
     id: crypto.randomUUID(),
+    revision: 0,
     title:
       kind === "email" ? copy.value.untitledEmail : copy.value.untitledEvent,
     kind,
@@ -593,10 +599,11 @@ async function ask(instruction: string) {
     async () => {
       const target = draft.value;
       const baseline = snapshot();
-      const payload =
+      const payload = target.payload;
+      const suggestion =
         target.suggestionSnapshot === baseline
-          ? { ...target.payload, ...target.suggestionContext }
-          : target.payload;
+          ? target.suggestionContext
+          : undefined;
       const conversation = target.conversation
         .filter(
           (entry) =>
@@ -627,31 +634,59 @@ async function ask(instruction: string) {
       target.message = "";
       agentController = new AbortController();
       target.proposal = undefined;
+      let reviewTaskId: string | undefined;
+      let refresh = false;
+      const applyWorkspace = (state: AgentWorkspace) => {
+        if (state.draftId !== target.id || state.kind !== target.kind)
+          throw Error(copy.value.invalidAiDraft);
+        target.payload = { ...state.payload } as Payload;
+        target.mapping = { ...state.mapping };
+        target.recipientColumn = state.recipientColumn;
+        target.templateId = state.templateId || "none";
+        target.revision = state.revision;
+        target.suggestionContext = undefined;
+        target.suggestionSnapshot = undefined;
+        if (isDefaultDraftTitle(target.title) && state.payload.subject)
+          target.title = state.payload.subject;
+      };
       try {
         const proposal = await api<Proposal>(
           "/agent",
           "POST",
           {
             message: instruction,
+            draftId: target.id,
+            requestId: crypto.randomUUID(),
+            revision: target.revision,
+            rows: target.rows,
+            mapping: target.mapping,
+            recipientColumn: target.recipientColumn,
             conversation,
             attachments: target.attachments,
             kind: target.kind,
             payload,
+            suggestion,
             columns: target.columns,
-            sampleRows: target.rows
-              .slice(0, 2)
-              .map((row) =>
-                Object.fromEntries(
-                  Object.keys(row).map((key) => [key, "[REDACTED]"]),
-                ),
-              ),
             templateId:
               target.templateId === "none" ? undefined : target.templateId,
           },
           {
             signal: agentController.signal,
             onProgress: (event) => {
-              if (event.type === "thinking" && event.text)
+              if (event.type === "workspace" && event.workspace) {
+                applyWorkspace(event.workspace);
+                reviewTaskId = undefined;
+              } else if (event.type === "refresh") refresh = true;
+              else if (event.type === "review" && event.taskId)
+                reviewTaskId = event.taskId;
+              else if (event.type === "tool" && event.tool) {
+                turn.toolCalls ??= [];
+                const existing = turn.toolCalls.find(
+                  (call) => call.callId === event.tool!.callId,
+                );
+                if (existing) Object.assign(existing, event.tool);
+                else turn.toolCalls.push(event.tool);
+              } else if (event.type === "thinking" && event.text)
                 turn.thinking =
                   (turn.thinking || "") +
                   event.text.slice(
@@ -669,14 +704,28 @@ async function ask(instruction: string) {
           typeof proposal.payload?.html !== "string"
         )
           throw Error(copy.value.invalidAiDraft);
-        target.proposal = proposal;
-        target.suggestionContext = {
-          subject: proposal.payload.subject,
-          html: proposal.payload.html,
-        };
+        if (proposal.workspaceChanged && proposal.workspace)
+          applyWorkspace(proposal.workspace);
+        reviewTaskId = proposal.reviewTaskId || reviewTaskId;
+        target.proposal =
+          proposal.hasSuggestion === false ? undefined : proposal;
+        target.suggestionContext = target.proposal
+          ? {
+              subject: proposal.payload.subject,
+              html: proposal.payload.html,
+            }
+          : undefined;
         target.suggestionSnapshot = baseline;
         turn.status = "complete";
         turn.content = proposal.message;
+        if (reviewTaskId) {
+          const task = await api<Task>("/tasks/" + idPath(reviewTaskId));
+          target.saved = task;
+          target.savedSnapshot = snapshot();
+          target.proposal = undefined;
+          agentOpen.value = false;
+          emit("review", task);
+        }
       } catch (error) {
         turn.status = agentController.signal.aborted ? "cancelled" : "error";
         turn.content =
@@ -687,6 +736,13 @@ async function ask(instruction: string) {
               : String(error);
         if (turn.status !== "cancelled") throw error;
       } finally {
+        if (turn.status !== "complete")
+          for (const call of turn.toolCalls || [])
+            if (call.status === "running") {
+              call.status = "error";
+              call.summary = copy.value.agentInterrupted;
+            }
+        if (refresh) emit("saved");
         agentController = undefined;
       }
     },

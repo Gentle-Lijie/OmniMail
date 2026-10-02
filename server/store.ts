@@ -27,6 +27,7 @@ export function createStore(path: string, secret: string) {
     CREATE TABLE IF NOT EXISTS template_versions (templateId TEXT NOT NULL,version INTEGER NOT NULL,value TEXT NOT NULL,PRIMARY KEY(templateId,version));
     CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY,value TEXT NOT NULL,createdAt TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS mcp_keys (id TEXT PRIMARY KEY,name TEXT NOT NULL,prefix TEXT NOT NULL,hash TEXT NOT NULL,createdAt TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS agent_operations (scope TEXT NOT NULL,operation TEXT NOT NULL,value TEXT NOT NULL,createdAt INTEGER NOT NULL,PRIMARY KEY(scope,operation));
     CREATE TABLE IF NOT EXISTS audit (id TEXT PRIMARY KEY,action TEXT NOT NULL,source TEXT NOT NULL,createdAt TEXT NOT NULL);
   `);
   const key = createHash("sha256").update(secret).digest();

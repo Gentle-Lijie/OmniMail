@@ -66,6 +66,7 @@ export interface Message {
   thinking?: string;
   stages?: string[];
   status?: "pending" | "complete" | "error" | "cancelled";
+  toolCalls?: import("./agent").AgentToolCall[];
 }
 export interface Provider {
   id: string;
@@ -129,7 +130,10 @@ export async function api<T>(
   if (body !== undefined && !multipart)
     headers["Content-Type"] = "application/json";
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 60000);
+  const timeout = setTimeout(
+    () => controller.abort(),
+    path === "/agent" ? 195000 : 60000,
+  );
   try {
     const response = await fetch("/api" + path, {
       method,

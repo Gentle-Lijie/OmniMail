@@ -81,3 +81,49 @@ test("attachment checks enforce supported types, counts, individual and combined
     "context",
   );
 });
+
+test("tool and workspace events are delivered before a later error so completed changes remain visible", async () => {
+  const events: unknown[] = [];
+  const workspace = {
+    draftId: "draft",
+    kind: "email",
+    payload: { subject: "Edited", html: "<p>Edited</p>" },
+    revision: 1,
+    mapping: {},
+    recipientColumn: "",
+  };
+  await assert.rejects(
+    readAgentResponse(
+      response([
+        {
+          type: "tool",
+          tool: {
+            callId: "edit",
+            name: "update_current_draft",
+            status: "running",
+          },
+        },
+        { type: "workspace", workspace },
+        {
+          type: "tool",
+          tool: {
+            callId: "edit",
+            name: "update_current_draft",
+            status: "complete",
+          },
+        },
+        { type: "refresh" },
+        { type: "review", taskId: "task" },
+        {
+          type: "error",
+          error: "Connection lost",
+          code: "provider_connection",
+        },
+      ]),
+      (event) => events.push(event),
+    ),
+    /Connection lost/,
+  );
+  assert.equal(events.length, 5);
+  assert.deepEqual(events[1], { type: "workspace", workspace });
+});

@@ -326,6 +326,7 @@ async function saveTemplate() {
       x.id ? "PUT" : "POST",
       {
         name: x.name,
+        expectedVersion: x.id ? x.version : undefined,
         description: x.description,
         kind: x.kind,
         subject: x.subject,
@@ -929,7 +930,10 @@ const placeholderHint = computed(
                 await api(
                   '/templates/' + idPath(templateEdit!.id!) + '/rollback',
                   'POST',
-                  { version: v.version },
+                  {
+                    version: v.version,
+                    expectedVersion: templateEdit!.version,
+                  },
                 );
                 templateEdit = undefined;
                 await loadPage();

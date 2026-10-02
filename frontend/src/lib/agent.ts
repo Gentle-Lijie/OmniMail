@@ -7,11 +7,12 @@ export interface AgentAttachment {
   mediaType?: "image/png" | "image/jpeg" | "image/webp";
   data?: string;
 }
-export interface AgentProgress {
-  type: "progress" | "thinking";
-  stage?: "context" | "model" | "drafting" | "validating";
-  text?: string;
-}
+export type {
+  AgentProgress,
+  AgentWorkspace,
+  AgentToolCall,
+} from "../../../server/agentTypes";
+import type { AgentProgress } from "../../../server/agentTypes";
 export class AgentStreamError extends Error {
   constructor(
     message: string,
@@ -50,14 +51,24 @@ export async function readAgentResponse<Result>(
         event.code,
       );
     if (event.type === "result") result = event.result;
-    else if (["progress", "thinking"].includes(event.type)) onProgress(event);
+    else if (
+      [
+        "progress",
+        "thinking",
+        "tool",
+        "workspace",
+        "refresh",
+        "review",
+      ].includes(event.type)
+    )
+      onProgress(event);
   };
   try {
     while (true) {
       const chunk = await reader.read();
       if (chunk.done) break;
       size += chunk.value.byteLength;
-      if (size > 2000000)
+      if (size > 8 * 1024 * 1024)
         throw new AgentStreamError(message("agent.responseTooLarge"));
       buffer += decoder.decode(chunk.value, { stream: true });
       let separator: RegExpExecArray | null;

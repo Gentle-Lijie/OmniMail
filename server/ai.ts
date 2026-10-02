@@ -7,11 +7,16 @@ import {
   validateAttachments,
   type AgentAttachment,
 } from "./agentAttachments.js";
-import { readProviderStream, type AgentProgress } from "./agentStream.js";
+import { readProviderStream } from "./agentStream.js";
+import { type AgentProgress, draftFields } from "./agentTypes.js";
+import { createAgentTools, type AgentTools } from "./agentTools.js";
+import { runAgentTools } from "./agentRuntime.js";
+import { rowSchema, mappingSchema } from "./draftValidation.js";
 
 interface AgentOptions {
   onProgress?: (event: AgentProgress) => void;
   signal?: AbortSignal;
+  principal?: string;
 }
 
 export const protocolSchema = z.enum([
@@ -38,18 +43,7 @@ const previewSchema = providerSchema.extend({
   id: z.string().optional(),
   name: z.string().trim().max(100).default("Provider"),
 });
-const fields = {
-  email: ["to", "cc", "bcc", "subject", "html"],
-  event: [
-    "subject",
-    "start",
-    "end",
-    "requiredAttendees",
-    "optionalAttendees",
-    "location",
-    "html",
-  ],
-};
+const fields = draftFields;
 const resultSchema = z
   .object({
     message: z.string().max(20000),
@@ -537,6 +531,7 @@ export function createAI(store: Store, fetcher: typeof fetch = fetch) {
     maxTokens = 4096,
     options: AgentOptions = {},
     attachments: AgentAttachment[] = [],
+    tools?: AgentTools,
   ) => {
     const model = provider.model;
     if (!model)
@@ -664,8 +659,11 @@ export function createAI(store: Store, fetcher: typeof fetch = fetch) {
     }
     if (options.onProgress) body.stream = true;
     const signal = options.signal
-      ? AbortSignal.any([options.signal, AbortSignal.timeout(45000)])
-      : AbortSignal.timeout(45000);
+      ? AbortSignal.any([
+          options.signal,
+          AbortSignal.timeout(tools ? 180000 : 45000),
+        ])
+      : AbortSignal.timeout(tools ? 180000 : 45000);
     let thoughtSeen = false,
       draftSeen = false;
     const progress = options.onProgress
@@ -675,13 +673,38 @@ export function createAI(store: Store, fetcher: typeof fetch = fetch) {
           options.onProgress!(event);
         }
       : undefined;
-    const data = await request(
-      provider,
-      `${provider.baseUrl}/${route}`,
-      body,
-      signal,
-      progress,
-    );
+    const send = (body: unknown) =>
+      request(
+        provider,
+        `${provider.baseUrl}/${route}`,
+        body,
+        AbortSignal.any([signal, AbortSignal.timeout(45000)]),
+        progress,
+      );
+    let data: any;
+    try {
+      data = tools
+        ? await runAgentTools(
+            provider.protocol,
+            body,
+            tools,
+            toolDraftSchema,
+            send,
+            progress,
+            signal,
+          )
+        : await send(body);
+    } catch (error) {
+      if (error instanceof ProviderError) throw error;
+      throw new ProviderError(
+        signal.aborted ? "provider_timeout" : "agent_tools",
+        signal.aborted
+          ? serverMessage("ai.providerRequestTimedOut")
+          : error instanceof Error
+            ? error.message
+            : serverMessage("agentTools.invalidTool"),
+      );
+    }
     if (progress) {
       const summary =
         provider.protocol === "openai-chat"
@@ -724,7 +747,7 @@ export function createAI(store: Store, fetcher: typeof fetch = fetch) {
         "output_refused",
         serverMessage("ai.providerRefusedTheDraftingRequest"),
       );
-    if (provider.protocol === "anthropic" && enforce) {
+    if (provider.protocol === "anthropic" && (enforce || tools)) {
       const tool = data.content?.find(
         (block: any) =>
           block.type === "tool_use" && block.name === "submit_draft",
@@ -896,47 +919,117 @@ export function createAI(store: Store, fetcher: typeof fetch = fetch) {
           .default([]),
         kind: z.enum(["email", "event"]),
         payload: z.record(z.string().max(500000)),
+        suggestion: z
+          .object({
+            subject: z.string().max(998),
+            html: z.string().max(500000),
+          })
+          .strict()
+          .optional(),
         columns: z.array(z.string()).max(100).optional(),
         sampleRows: z.array(z.any()).max(3).optional(),
         templateId: z.string().optional(),
         attachments: z.unknown().optional(),
+        draftId: z.string().min(1).max(200).optional(),
+        requestId: z.string().min(1).max(200).optional(),
+        rows: z.array(rowSchema).max(1000).default([]),
+        mapping: mappingSchema.default({}),
+        recipientColumn: z.string().max(200).default(""),
+        revision: z.number().int().min(0).default(0),
       })
       .parse(body);
     const attachments = validateAttachments(input.attachments);
     options.onProgress?.({ type: "progress", stage: "context" });
     const provider = saved(defaultProviderId());
-    const templates = (
-      store.db.prepare("SELECT value FROM templates").all() as {
-        value: string;
-      }[]
-    ).map((row) => JSON.parse(row.value));
+    // Full batch values are available to tools, never dumped into model input.
+    if (
+      Object.keys(input.payload).some(
+        (field) => !fields[input.kind].includes(field),
+      )
+    )
+      throw new ProviderError(
+        "output_invalid",
+        serverMessage(
+          "ai.providerReturnedUnsupportedDraftFieldsDraftUnchanged",
+        ),
+      );
+    const columns = input.columns ?? [];
+    if (
+      new Set(columns).size !== columns.length ||
+      Object.values(input.mapping).some(
+        (column) => !columns.includes(column),
+      ) ||
+      (input.recipientColumn && !columns.includes(input.recipientColumn))
+    )
+      throw new ProviderError(
+        "output_invalid",
+        serverMessage("ai.providerSelectedAnUnknownBatchColumnDraftUnchanged"),
+      );
+    store.db
+      .prepare("DELETE FROM agent_operations WHERE createdAt<?")
+      .run(Date.now() - 86400000);
+    const toolkit = createAgentTools(store, {
+      workspace: {
+        draftId: input.draftId ?? id(),
+        kind: input.kind,
+        payload: input.payload,
+        templateId: input.templateId,
+        mapping: input.mapping,
+        recipientColumn: input.recipientColumn,
+        revision: input.revision,
+      },
+      rows: input.rows,
+      columns,
+      attachments,
+      conversation: input.conversation,
+      requestId: input.requestId,
+      principal: options.principal,
+      onProgress: options.onProgress,
+      signal: options.signal,
+    });
+    const runSignal = options.signal
+      ? AbortSignal.any([options.signal, AbortSignal.timeout(180000)])
+      : AbortSignal.timeout(180000);
     options.onProgress?.({ type: "progress", stage: "model" });
+    const {
+      rows: _rows,
+      attachments: _attachments,
+      sampleRows: _samples,
+      ...requestContext
+    } = input;
     const text = await complete(
       provider,
-      `${draftSystem()} ${serverMessage("ai.attachmentInstructions")} ${store.get("prompt", "")}`,
+      `${serverMessage("agentTools.system")} ${serverMessage("ai.attachmentInstructions")} ${store.get("prompt", "")}`,
       JSON.stringify({
         request: {
-          ...input,
-          attachments: attachments.map(({ kind, name }) => ({ kind, name })),
+          ...requestContext,
+          draftId: toolkit.state().draftId,
+          rowCount: input.rows.length,
         },
-        documents: attachments.filter(
-          (attachment) => attachment.kind === "text",
-        ),
-        templates,
+        attachments: toolkit.attachmentIndex,
+        currentTime: new Date().toISOString(),
+        timezone: "Asia/Shanghai",
       }),
       true,
-      4096,
-      options,
+      8192,
+      { ...options, signal: runSignal },
       attachments,
+      toolkit,
     );
     options.onProgress?.({ type: "progress", stage: "validating" });
-    const result = parseDraft(text, input);
+    const result = parseDraft(text, toolkit.state());
     if (
       result.templateId &&
-      !templates.some(
-        (template) =>
-          template.id === result.templateId && template.kind === result.kind,
+      !(
+        store.db.prepare("SELECT value FROM templates").all() as {
+          value: string;
+        }[]
       )
+        .map((row) => JSON.parse(row.value))
+        .some(
+          (template) =>
+            template.id === result.templateId && template.kind === result.kind,
+        )
     )
       throw new ProviderError(
         "output_invalid",
@@ -955,7 +1048,15 @@ export function createAI(store: Store, fetcher: typeof fetch = fetch) {
         "output_invalid",
         serverMessage("ai.providerSelectedAnUnknownBatchColumnDraftUnchanged"),
       );
-    return result;
+    return {
+      ...result,
+      workspace: toolkit.state(),
+      workspaceChanged: toolkit.changed(),
+      reviewTaskId: toolkit.reviewTaskId(),
+      hasSuggestion:
+        JSON.stringify(result.payload) !==
+        JSON.stringify(toolkit.state().payload),
+    };
   };
   return {
     list,
