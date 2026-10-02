@@ -301,6 +301,13 @@ label {
   height: 38px;
   border-radius: 11px;
 }
+.brand img.brand-logo {
+  width: 49px;
+  /* height: 49px; */
+  /* border-radius: 11px; */
+  border: none;
+  display: block;
+}
 .rail-brand {
   font-size: 0;
 }
@@ -1803,6 +1810,10 @@ kbd {
     width: 31px;
     height: 31px;
     padding: 6px;
+  }
+  .brand img.brand-logo {
+    width: 31px;
+    height: 31px;
   }
   .topbar {
     height: 58px;

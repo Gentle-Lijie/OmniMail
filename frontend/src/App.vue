@@ -6,7 +6,6 @@ import {
   startRegistration,
 } from "@simplewebauthn/browser";
 import {
-  Mail,
   LayoutDashboard,
   History,
   Files,
@@ -455,7 +454,9 @@ const placeholderHint = computed(
   </div>
   <div v-else class="shell">
     <aside class="sidebar rail">
-      <div class="brand rail-brand" :aria-label="copy.omniMail"><Mail /></div>
+      <div class="brand rail-brand" :aria-label="copy.omniMail">
+        <img class="brand-logo" src="/logo.png" alt="" />
+      </div>
       <nav :aria-label="copy.mainNavigation">
         <Button
           variant="ghost"

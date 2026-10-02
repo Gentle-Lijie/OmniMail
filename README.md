@@ -1,8 +1,113 @@
-# OmniMail
+![banner](assests/banner.png)
 
-Vue 3 / TypeScript / shadcn-vue 极简商务工作台，通过 Power Automate 发送 Outlook HTML 邮件和创建北京时间日程。无用户账号；所有已登记 Passkey 共享工作空间。SQLite 持久化配置、模板版本、任务、凭证与审计记录。
+## 这东西是干嘛的？
 
-## 本地运行
+众所周知，学校 / 企业的 Outlook 邮箱（尤其是教育租户）普遍**禁用 SMTP**。Python `smtplib`、`nodemailer`、`mutt`——这些方案在第一次握手时就会阵亡。你手里唯一的自动化通道，是 Power Automate 里已经配好的那个 Flow，但它对外只剩一个裸 HTTP Webhook：没有起草界面，没有审核，没有批量，没有状态追踪。`curl` 一下，邮件就发出去了；`curl` 错了，邮件**也发出去了**。
+
+> [!Warning]
+>
+> 当然如果你连这个 Power Automate 都没有，请下载 assests/ 目录下的两个压缩包并导入，这里有我配置好的工作流。
+>
+> 只需要绑定你的邮箱，就可以直接获得相关的网址，然后填进去就行。
+
+群发个性化通知则是另一场灾难。给 200 个报名者逐个改「姓名 / 时间 / 岗位」再发送，是一场必然出错的重复劳动：抄错邮箱、漏改占位符、正文贴错人——而发出去的邮件**无法撤回**。更别提 Outlook 的 HTML 渲染和浏览器差异大得像两个时代的产品，你精心调的排版到了收件人那里可能完全不是那个样子。
+
+![poster](assests/poster.png)
+
+
+
+所以我做了这个。**OmniMail** 是一个自托管的 Outlook 邮件与日程自动化工作台。它在你的 Webhook 之上补齐整个工作台——结构化表单、模板版本、批量个性化、任务队列、逐条结果——最后一步才调用你已有的 Flow 发送 HTML 邮件和创建北京时间日程。就这么简单。
+
+## 能干什么
+
+OmniMail 目前支持：
+
+* 邮件 / 日程草稿：TinyMCE 富文本与 HTML 源码双模式编辑，隔离预览可切换电脑（1024px）与手机（390px）视口
+* 批量邮件合并 / 批量日程：CSV / Excel 名单导入，`{{ 字段 }}` 占位符逐行渲染，任何一行有问题整批都不发送
+* 模板库：版本管理与一键回滚，Agent 也能查询 / 应用 / 修改模板
+* AI Agent：多轮对话起草、上传参考文件、SSE 流式展示真实处理过程
+* 发送测试邮件：先把一份样本发到自己邮箱，在真实 Outlook 里确认渲染，再处理整批
+* 串行限速执行（默认 1 秒 / 条，可调）、任务历史、逐条结果与状态追踪
+* Passkey 登录：无密码、无账号体系，已登记凭证共享工作空间
+* 可鉴权的 MCP 服务，让可信客户端（比如 Claude Code）直接排队任务
+
+简单来说：**AI 可以帮你写信，但点「发送」的永远是你**。
+
+## 大概是怎么跑的
+
+```text
+┌─────────────┐   Passkey 登录（无账号体系，已登记凭证共享工作空间）
+│  浏览器 SPA  │──AI 起草（SSE 流式）──▶ AI Provider（OpenAI / Anthropic / GLM…）
+│  Vue 3 前端  │
+└──────┬──────┘
+       │ 同源 REST /api（HttpOnly 会话 + CSRF）
+┌──────▼──────────────────────────────────────────┐
+│  Fastify 后端（TypeScript）                       │
+│  SQLite（WAL）：配置/模板版本/任务/凭证/审计        │
+│  串行 worker：限速 → 重启恢复 → 状态分级            │
+└──────┬──────────────────────────────┬───────────┘
+       │ 人工确认后调用                  │ Bearer API Key
+┌──────▼──────────┐          ┌────────▼────────┐
+│ Power Automate   │          │ MCP 客户端       │
+│ 邮件 / 日程 Flow │          │ POST /mcp       │
+└─────────────────┘          └─────────────────┘
+```
+
+| 层 | 技术 |
+| --- | --- |
+| 前端 | Vue 3 · TypeScript · Vite · Tailwind CSS 4 · shadcn-vue（Reka UI / TinyMCE） |
+| 后端 | Fastify · TypeScript · Zod · OpenAI / Anthropic SDK |
+| 数据库 | SQLite（WAL 模式，就一个文件） |
+
+两个 Flow 的导出包存放在 [`assests/`](assests/)（原样 zip，可直接导入 Power Automate 参考）。另外，协议外层的 `attachments` 字段是 Adaptive Card 信封，**不是**邮件附件——别被名字骗了。
+
+## 为什么 HTTP 200 不等于发送成功？
+
+Power Automate 返回 2xx 只代表 Flow 收下了请求，不代表 Outlook 真的发出、更不代表对方收到。超时、5xx、网络中断时你根本不知道副作用有没有发生——这时候盲目重试，就是重复群发。
+
+所以 OmniMail 把任务状态严格分级：`accepted`（接口确定接收）/ `uncertain`（结果不确定，先查 Flow 运行历史）/ `failed`（确定未被接受）。**不确定的请求永远不会被自动重试**；服务器重启时正在执行的条目也会自动转为不确定。宁可让你多查一步 Flow 历史，也不替你赌一把。
+
+## AI 很会写信，但它没有发送权
+
+把发件通道直接交给 AI 是不可接受的。所以 Agent 手里只有 23 个「读与改」的业务工具——草稿、模板、映射、校验——**没有任何发送、确认或排队工具**。
+
+它的主题 / 正文建议默认只是「尚未应用」的提案，点一下才写入；就算你明确要求它改草稿，改动也只是进入工作草稿，发送仍需你在审核弹窗里勾选「我已审核收件人及整批内容，同意执行」后亲自完成。完整名单也不会塞进模型输入，模型按需读取指定行——你的收件人数据不会整包曝光给 AI 服务商。
+
+## MCP 服务
+
+标准 Streamable HTTP MCP：`POST <站点地址>/mcp`，Header 带 `Authorization: Bearer <API_KEY>`。密钥在「MCP」页创建（`omni_` 前缀，仅创建时显示一次，服务端只存 SHA-256 摘要）。客户端配置示例：
+
+```json
+{
+  "mcpServers": {
+    "omnimail": {
+      "url": "https://你的域名/mcp",
+      "headers": { "Authorization": "Bearer <YOUR_API_KEY>" }
+    }
+  }
+}
+```
+
+| 工具 | 行为 |
+| --- | --- |
+| `send_email` | 立即创建并**排队**邮件任务（可携带 ≤1000 行数据做批量渲染） |
+| `create_event` | 立即创建并**排队**日程任务 |
+| `get_task` | 查询任务状态与逐条结果 |
+| `list_templates` | 获取模板列表 |
+
+> [!WARNING]
+>
+> MCP 的发送 / 邀请**不经 Web 人工确认**——API Key 即执行权限。只向可信客户端授权；密钥不得进入前端源码、公开仓库或日志。
+
+## 一个很重要的事情
+
+* Webhook URL 是 bearer 级密钥：AES-256-GCM 加密存储，界面只显示「已配置 / 未配置」，永不回显。
+* 所有不可信 HTML（预览、历史正文、AI 建议预览）都渲染在 `sandbox` iframe + CSP 里：禁脚本、禁外链、仅允许 data: 图片。
+* 取消任务只停未执行的条目，已发出的邮件**不撤回**。
+* 无送达回执：`accepted` 只代表接口接收，最终送达请到 Outlook / Flow 侧核实。
+* 登录、凭证增删、设置变更、模板版本、任务确认全部落审计日志。
+
+## 本地开发
 
 要求 Node.js 22+。
 
@@ -10,29 +115,35 @@ Vue 3 / TypeScript / shadcn-vue 极简商务工作台，通过 Power Automate �
 npm ci
 npm --prefix frontend ci
 cp .env.example .env
-# 将 APP_SECRET、SETUP_TOKEN 分别替换为 openssl rand -hex 32 生成的值
+# 用 openssl rand -hex 32 分别生成 APP_SECRET 与 SETUP_TOKEN 填入 .env
 set -a; source .env; set +a
 npm run dev
 ```
 
-访问 `http://localhost:5173`。首次登记 Passkey 需输入 `SETUP_TOKEN`；后续新增凭证必须已经登录，且注册开关开启。Passkey 需要支持 WebAuthn 的浏览器与系统认证器。localhost 可用于开发，正式环境必须 HTTPS。
+前端跑在 `http://localhost:5173`（`/api` 与 `/mcp` 已代理到后端 3000 端口），后端监听 `127.0.0.1:3000`。首次打开站点会要求用 `SETUP_TOKEN` 注册第一把 Passkey，之后登录无密码。
+
+环境变量一览（`.env.example`）：
+
+| 变量 | 说明 |
+| --- | --- |
+| `APP_SECRET` | 加密主密钥，≥32 字符；**丢失则所有已存配置无法解密** |
+| `SETUP_TOKEN` | 首个 Passkey 的初始化令牌，≥24 字符，只生效一次 |
+| `APP_ORIGIN` | 站点地址，开发用 `http://localhost:5173`；**生产必须 HTTPS** |
+| `HOST` / `PORT` | 后端监听地址，默认 `127.0.0.1:3000` |
+| `DATABASE_PATH` | SQLite 路径，默认 `data/omnimail.sqlite` |
+
+其他常用命令：`npm test`（内存 SQLite + 模拟 HTTP，绝不调用真实邮件 / AI）、`npm run lint`、`npm run build`。需求全量见 `docs/PRD.md`，验收记录见 `docs/VERIFICATION.md`。
+
+## 部署
+
+生产必须 HTTPS（Passkey 与 Cookie 安全的前提）：
 
 ```bash
-npm test
-npm run lint
-npm run build
-# 运行构建后的同源站点（更新 APP_ORIGIN 为实际访问地址）
-npm start
+# .env: APP_ORIGIN=https://你的域名，以及独立随机的 APP_SECRET / SETUP_TOKEN
+docker compose up -d --build   # 容器监听 127.0.0.1:3000，数据卷 omnimail-data 必须持久化
 ```
 
-## HTTPS 部署
-
-1. 设置 `.env` 中 `APP_ORIGIN=https://你的域名`，生成独立随机 `APP_SECRET` 与 `SETUP_TOKEN`。
-2. `docker compose up -d --build`。
-3. 用 Caddy/Nginx 将 HTTPS 反向代理到 `127.0.0.1:3000`；后端提供前端静态文件、`/api` 和 `/mcp`。
-4. 浏览器绑定首个 Passkey，再配置 Webhook 与 AI Provider。
-
-Caddy 示例：
+再用 Caddy / Nginx 把 HTTPS 反代到 `127.0.0.1:3000`：
 
 ```caddyfile
 mail.example.org {
@@ -40,101 +151,16 @@ mail.example.org {
 }
 ```
 
-同一实例只能运行一个任务 worker。SQLite 使用 WAL；不要通过多个副本共享数据库并并行执行任务。卷 `omnimail-data` 必须持久化。备份需包含数据库与 `APP_SECRET`；丢失主密钥会使已存配置无法解密。`APP_ORIGIN` 的域名就是 Passkey RP ID，换域名需重新绑定凭证。
+几条运维约束：**单实例单 worker**（SQLite WAL 模式，不要多副本共享数据库并行执行任务）；备份必须同时包含数据库文件与 `APP_SECRET`，缺一不可解密；换域名等于换 Passkey RP ID，所有凭证需重新绑定。
 
-## 前端工作台
+## 最后
 
-默认 lint 使用 Prettier：`npm run lint` 只检查格式，不写入文件；`npm run lint:fix` 会格式化未被忽略的源码。生成文件、依赖、锁文件与已定稿的 HTML 原型不参与格式化。
+这个项目没有什么宏大的目标。最开始只是因为：
 
-所有运行时提醒使用 Notivue，包括成功、错误、警告、加载状态与重试入口。通知使用 Lucide 图标并跟随明暗主题；弹窗内通知保留可访问的关闭与操作按钮。API 密钥仅在专用区域显示，不进入通知。
+> **我只是想安全地群发一封通知，为什么要把自己暴露在裸 Webhook 面前？**
 
-Agent 的工作台、侧栏和编辑器入口统一打开同一个聊天框，支持多轮追问、Enter 发送、Shift+Enter 换行与停止生成。附件支持 UTF-8 文本、PDF（最多 50 页，扫描件需先 OCR）、DOCX、Excel（最多 10 张表，每表 500 行、100 列）及 PNG/JPEG/WebP；每次最多 5 个文件，每个 5 MB，总计 10 MB，其中图片合计最多 3 MB，提取文本每文件最多 100,000 字符、合计 200,000 字符。附件仅作为 AI 参考上下文，原文件不写入磁盘，文本按会话请求提供稳定 ID 及按需检索，不转成收件名单，也不作为邮件附件发送；图片需要配置的模型支持视觉输入。
+如果它顺便也帮你少 `curl` 了几次 Webhook、少复制粘贴了几百遍姓名，那挺好，请礼貌给 star。
 
-Agent 调用通过 SSE 流式展示真实处理阶段，以及服务商主动返回的思考内容/摘要。未返回思考摘要的模型只显示处理阶段，不编造推理过程；流中断、停止或校验失败均不产生可应用建议。生成建议与应用建议分开，普通起草建议仍须点击应用，只更新主题和正文；用户明确要求的工具编辑会同步工作草稿，并显示真实工具操作记录。停止生成或上游失败不会回滚已完成的工具操作。
+---
 
-前端以 `docs/ui-redesign/desk.html` 定稿为设计基线，交互控件统一使用 Reka UI 组件与 Lucide 图标，不使用 emoji。
-
-- 工作台提供独立草稿空间；新建邮件后自动打开 Agent 起草弹窗，允许跳过并自由写作。工作草稿支持确认后删除；删除当前草稿会切换到相邻草稿，删除最后一份会创建空白草稿，已保存的服务器草稿不受影响。切换页面或草稿不清空编辑状态；刷新后未保存的编辑会丢失，保存的服务器草稿可在历史中继续审核。
-- Agent 调用真实已配置的服务，返回建议预览；普通起草先返回建议；明确的工具编辑支持工作草稿字段、模板与映射变更。Agent 可准备审核，但发送和邀请仍需人工确认。
-- 名单支持 CSV / Excel，导入后必须确认收件人列。支持字段映射、正文高亮与光标处快捷插入、分页编辑、问题行筛选和逐行个性化预览；审核前校验整个批次。
-- 动态字段可以插入 To/CC/BCC、必需/可选参会者、主题、日程起止时间、地点和正文；插入目标跟随输入焦点，也可在字段工具栏手动选择。名单确认后可继续编辑收件人字段，时间字段使用变量时切换为文本输入。主题、地点及时间文本中的动态字段逐个高亮，支持与普通文字混排。TinyMCE 连续插入字段会将光标移到新字段之后，并保留已有内容。
-- 编辑器提供 TinyMCE、Raw HTML 与新标签页隔离预览。预览可切换电脑（1024 px）和手机（390 px）视口，保留邮件 HTML 的样式和媒体查询；小窗口自动缩放完整预览框，邮件实际视口宽度保持不变。展示打开时的内容快照，后续编辑需重新打开。预览通过内存消息传递正文，URL 不包含邮件内容，不写入浏览器持久存储；刷新预览需保持来源标签页打开，来源刷新、关闭或快照超过一小时后需重新打开。最多保留最近 20 份快照。外链图片仍被拦截；浏览器预览不能完全模拟 Outlook、Gmail 的渲染差异。
-- 工作台邮件操作区提供「发送测试邮件」：输入一个测试邮箱，确认后只发送当前预览样本的主题和正文。测试邮件不使用原 To/CC/BCC，不执行整个名单，也不改变工作草稿；未配置原收件人或其他行存在问题时，仍可测试当前有效样本。主题、正文及当前样本中的动态字段须有效。测试请求进入现有队列，历史标记为「测试邮件」，可单独筛选；接口接收仍不代表送达，结果不确定时不会自动重试。
-- 应用模板只替换主题与正文，已有内容会要求确认，不清空收件人、名单或日程信息。
-- 历史、模板、设置、AI Provider 配置与 MCP 共用主题与组件。任务空间仅在工作台显示；支持明暗主题和窄屏布局。
-- 保存草稿不会发送。执行前展示整批数量、逐条收件人与正文预览，并要求明确勾选人工确认。前端自动化验证使用模拟 API，后端测试使用内存数据库，不调用真实邮件接口。
-
-## 邮件与日程
-
-- 邮件字段：`to`、`cc`、`bcc`、`subject`、`html`。To/CC/BCC 及必需、可选参会者支持粘贴以换行、空格、逗号、分号及常见中英文符号分隔的邮箱，也支持 Outlook 的 `姓名 <邮箱>` 格式。识别出的邮箱显示为可编辑、可移除的高亮标签，未识别内容以错误标签保留；名单动态字段保持可用。保存和发送时统一转换为分号分隔的纯邮箱。CC/BCC 未使用时传空字符串。
-- 日程字段：`subject`、`start`、`end`、`requiredAttendees`、`optionalAttendees`、`location`、`html`。
-- 日程固定北京时间，日期不带 `Z` 或 UTC 偏移；结束时间必须晚于开始。添加参会者会发送邀请。
-- 目前 Flow Schema **不支持文件附件、重复日程、全天标识或自动生成 Teams 会议**。协议外层 `attachments` 不是邮件附件。
-- 模板支持 `{{ field }}`。批量导入 CSV/XLS/XLSX，最多 5 MB、1000 行、100 列；逐行渲染并校验整个批次后才创建草稿。HTML 占位符值进行转义。
-- Web 任务创建后必须再次确认，AI 只修改草稿。取消只停止尚未执行的条目，不能撤回已经发出的内容。
-- HTTP 2xx 记录为 `accepted`（接口已接收），**不证明 Outlook 已发送或收件箱送达**。5xx、网络错误及超时记录为 `uncertain`。不会自动重试；应先核查 Power Automate 运行历史。
-- 重启时正在请求的条目标记不确定，剩余待执行条目恢复入队。
-
-Webhook URL 是 bearer 密钥。可以在设置页输入，或首次启动通过 `OUTLOOK_MAIL_WEBHOOK_URL` / `OUTLOOK_EVENT_WEBHOOK_URL` 环境变量导入。配置保存后只返回是否已配置，不回显 URL。不要提交带 `sig` 的 URL。
-
-## AI Provider
-
-支持 OpenAI **Responses API** 和 Anthropic **Messages API**；可配置多个自定义 Provider，填写协议、Base URL（例如 `https://api.openai.com/v1` / `https://api.anthropic.com/v1`）、模型和 API Key。
-
-- 默认使用 `<Base URL>/models` 获取模型，支持自定义模型列表地址。
-- 上游不支持列表时，可手动输入模型 ID。
-- 模型测试实际执行最小推理请求，可能产生费用。列出模型并不代表支持当前协议。
-- 密钥和自定义认证头使用 AES-256-GCM 加密存储。设置响应不返回密钥。
-- Agent 接收对话、当前草稿、模板检索工具和附件索引。完整名单随请求传到 OmniMail 服务端，但不直接送给模型；工具按需读取指定行，预览及校验在服务端完成。文本附件按 ID 分段读取或关键词检索；图片通过视觉输入传给模型。
-- Agent 支持 SSE 与多步工具调用，适配 OpenAI Responses、Chat Completions 和 Anthropic Messages。`outputMode` 继续控制 Provider 起草验证；Agent 使用原生工具定义，并兼容模型返回结构化 JSON 的最终草稿。
-
-## OmniAgent tools
-
-内置 Agent 有 23 个业务工具，加上用于完成响应的 `submit_draft`：
-
-| 范围     | 工具                                                                                                                                     |
-| -------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| 模板     | `list_templates`, `get_template`, `create_template`, `update_template`, `delete_template`, `list_template_versions`, `rollback_template` |
-| 草稿     | `get_current_draft`, `update_current_draft`, `apply_template`, `save_draft`, `preview_draft`                                             |
-| 批量     | `get_batch_schema`, `set_field_mapping`, `validate_draft`, `get_batch_row`                                                               |
-| 任务     | `list_tasks`, `get_task`, `cancel_task`, `prepare_execution`, `request_execution_confirmation`                                           |
-| 参考资料 | `read_attachment`, `search_attachment`                                                                                                   |
-
-模板工具与 Web API 共用服务，更新和回滚保存新版本。修改、删除和回滚工具要求 `expectedVersion`；工作草稿变更要求 `expectedRevision`。列表支持查询和分页；名单行号和预览行号均从 0 开始。`set_field_mapping` 的 `recipientColumn` 参数明确选择收件人列。附件 ID 由当前请求的内容产生，仅在当前会话上传资料范围内读取。
-
-模板持久化和任务取消立即生效并记入审计。工作草稿通过 SSE 同步到对应 draft ID；最终 JSON 也返回工作草稿状态。`save_draft` 创建 draft 任务；`request_execution_confirmation` 校验并保存草稿，然后打开现有人工审核，**不会排队或调用 webhook**。`cancel_task` 不能撤回已发邮件或取消 Outlook 日程。普通 `submit_draft` 仍只返回未应用建议。
-
-每次请求最多 16 轮模型调用、48 次工具调用；整个请求最长 180 秒，单次上游请求最长 45 秒。参数用 Zod 校验，工具失败会反馈给模型以便修正。相同会话身份、`requestId`、工具名与参数的持久化操作在 24 小时内重试时复用结果，避免重复保存；新请求视为新的用户操作。已完成变更不会因取消或后续调用失败而回滚。
-
-真实 Provider 验证是显式执行的独立脚本：`node --import tsx scripts/verify-agent-provider.ts`。它从本地配置复制加密 Provider 到内存数据库，使用虚构模板与名单，不复制 webhook、不启动 worker；调用模型可能产生费用。常规 `npm test` 只使用模拟 HTTP。
-
-## MCP
-
-标准 Streamable HTTP，`POST /mcp`，Header `Authorization: Bearer <API_KEY>`。在 MCP 页创建密钥，仅显示一次；可以撤销。
-
-工具：
-
-- `send_email`：立即创建并排队邮件任务，无 Web 人工确认。
-- `create_event`：立即创建并排队日程任务，无 Web 人工确认。
-- `get_task`：查询状态和逐条结果。
-- `list_templates`：获取模板。
-
-MCP 密钥具有实际发送/邀请权限，不能暴露到前端源码、公开仓库或不可信 Agent。工具返回排队状态，不代表发送完成。
-
-## 安全与恢复
-
-浏览器会话 HttpOnly / SameSite=Strict，HTTPS 环境使用 Secure；写 API 校验 CSRF，认证校验 Origin、挑战有效期、签名与用户验证。注册需初始化令牌或已认证会话；禁止移除最后一把 Passkey。不要在运行系统中直接编辑凭证数据库。
-
-若丢失全部 Passkey：停止服务，备份数据库；由服务器管理员删除 `passkeys` 和 `sessions` 表中的记录，设置新的随机 `SETUP_TOKEN` 后启动并重新绑定。此流程只能由有服务器权限的管理员操作，且保留模板和历史数据。
-
-当前历史列表返回最近 500 个任务，worker 不受该列表上限影响。保存的邮件正文、收件人和对话属于敏感数据；保护数据库备份和服务器访问。
-
-## Git 工作流
-
-功能分支开发，Conventional Commit 分阶段提交，CI 运行测试、构建与依赖检查，通过 PR 审核后合并 `main`。本地不会自动推送或在没有远程仓库时创建 PR。
-
-## 测试安全
-
-自动化后端测试使用内存数据库及模拟 HTTP，不调用真实 Outlook。任何需要真实邮件/邀请的人工测试，收件人（包含 To/CC/BCC 与参会者）只能为 `scylz12@nottingham.edu.cn` 和 `zljzljsweepy@qq.com`。真实接口验收还需核查 Flow 的 Outlook 动作以及收件箱/日历，不能仅检查 HTTP 状态。
-
-TinyMCE 使用 GPL 自托管版本；分发或商用请核对 GPL 义务或购买商业许可。
+Made with ❤️ by GentleLijie
