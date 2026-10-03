@@ -22,7 +22,8 @@ npm ci --no-audit --no-fund
 npm --prefix frontend ci
 
 echo "构建（tsc + vue-tsc + vite build）..."
-npm run build
+# vite 生产构建内存峰值高，小内存机器务必配好 swap；1536MB 堆上限避免挤爆同机其他服务
+NODE_OPTIONS=--max-old-space-size=1536 npm run build
 
 echo "重启 pm2 进程..."
 pm2 delete "${APP_NAME}" >/dev/null 2>&1 || true
