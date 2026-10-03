@@ -17,9 +17,8 @@ PORT="${PORT:-3000}"
 
 command -v pm2 >/dev/null 2>&1 || { echo "安装 pm2..."; npm install -g pm2; }
 
-echo "安装依赖（根目录 pnpm / frontend npm）..."
-corepack enable
-pnpm install --frozen-lockfile
+echo "安装依赖..."
+npm ci --no-audit --no-fund
 npm --prefix frontend ci
 
 echo "构建（tsc + vue-tsc + vite build）..."

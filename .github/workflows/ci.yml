@@ -7,16 +7,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # 根目录是 pnpm（见 package.json 的 packageManager 字段），frontend 是 npm
-      - run: corepack enable
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
+      - run: npm ci
       - run: npm --prefix frontend ci
       - run: npm test
       - run: npm run build
-      - run: pnpm audit --prod
+      - run: npm audit --omit=dev
       - run: npm --prefix frontend audit --omit=dev

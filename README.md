@@ -112,8 +112,7 @@ Power Automate 返回 2xx 只代表 Flow 收下了请求，不代表 Outlook 真
 要求 Node.js 22+。
 
 ```bash
-corepack enable
-pnpm install --frozen-lockfile   # 根目录用 pnpm，frontend 用 npm
+npm ci
 npm --prefix frontend ci
 cp .env.example .env
 # 用 openssl rand -hex 32 分别生成 APP_SECRET 与 SETUP_TOKEN 填入 .env
@@ -152,7 +151,7 @@ mail.example.org {
 }
 ```
 
-不想用 Docker 的话，`./deploy.sh` 一条命令：安装依赖（根目录 pnpm / frontend npm）→ 构建 → 用 PM2 拉起**单个**进程 `dist/server/index.js`，同端口托管前端静态文件、`/api` 与 `/mcp`。进程名（`PM2_APP_NAME`，默认 `omnimail`）、监听地址（`HOST` / `PORT`）都在 `.env` 里配；反代域名需与 `APP_ORIGIN` 一致。
+不想用 Docker 的话，`./deploy.sh` 一条命令：安装依赖 → 构建 → 用 PM2 拉起**单个**进程 `dist/server/index.js`，同端口托管前端静态文件、`/api` 与 `/mcp`。进程名（`PM2_APP_NAME`，默认 `omnimail`）、监听地址（`HOST` / `PORT`）都在 `.env` 里配；反代域名需与 `APP_ORIGIN` 一致。
 
 几条运维约束：**单实例单 worker**（SQLite WAL 模式，不要多副本共享数据库并行执行任务）；备份必须同时包含数据库文件与 `APP_SECRET`，缺一不可解密；换域名等于换 Passkey RP ID，所有凭证需重新绑定。
 
