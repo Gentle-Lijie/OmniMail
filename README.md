@@ -105,6 +105,7 @@ Power Automate 返回 2xx 只代表 Flow 收下了请求，不代表 Outlook 真
 * 所有不可信 HTML（预览、历史正文、AI 建议预览）都渲染在 `sandbox` iframe + CSP 里：禁脚本、禁外链、仅允许 data: 图片。
 * 取消任务只停未执行的条目，已发出的邮件**不撤回**。
 * 无送达回执：`accepted` 只代表接口接收，最终送达请到 Outlook / Flow 侧核实。
+* `SETUP_TOKEN` 同时是恢复通道：持有者可以在**未登录**状态注册新 Passkey（该路径同样受 30 次/分/IP 限速保护），请像保管 `APP_SECRET` 一样保管它。
 * 登录、凭证增删、设置变更、模板版本、任务确认全部落审计日志。
 
 ## 本地开发
@@ -120,14 +121,14 @@ set -a; source .env; set +a
 npm run dev
 ```
 
-前端跑在 `http://localhost:5173`（`/api` 与 `/mcp` 已代理到后端 3000 端口），后端监听 `127.0.0.1:3000`。首次打开站点会要求用 `SETUP_TOKEN` 注册第一把 Passkey，之后登录无密码。
+前端跑在 `http://localhost:5173`（`/api` 与 `/mcp` 已代理到后端 3000 端口），后端监听 `127.0.0.1:3000`。首次打开站点会要求用 `SETUP_TOKEN` 注册第一把 Passkey，之后登录无密码。Passkey 绑定认证器——换了设备登不上时，在登录页点「使用 SETUP_TOKEN 注册新 Passkey」即可自救。
 
 环境变量一览（`.env.example`）：
 
 | 变量 | 说明 |
 | --- | --- |
 | `APP_SECRET` | 加密主密钥，≥32 字符；**丢失则所有已存配置无法解密** |
-| `SETUP_TOKEN` | 首个 Passkey 的初始化令牌，≥24 字符，只生效一次 |
+| `SETUP_TOKEN` | Passkey 注册令牌，≥24 字符：初始化第一把 Passkey 用它，未登录时注册新 Passkey（比如换了设备登不上）也用它 |
 | `APP_ORIGIN` | 站点地址，开发用 `http://localhost:5173`；**生产必须 HTTPS** |
 | `HOST` / `PORT` | 后端监听地址，默认 `127.0.0.1:3000` |
 | `DATABASE_PATH` | SQLite 路径，默认 `data/omnimail.sqlite` |

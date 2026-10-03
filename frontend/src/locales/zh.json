@@ -20,6 +20,8 @@
     "english": "中文 / English",
     "reconnect": "重新连接",
     "signInWithPasskey": "使用 Passkey 登录",
+    "registerWithSetupToken": "使用 SETUP_TOKEN 注册新 Passkey",
+    "backToSignIn": "返回登录",
     "passkeyName": "Passkey 名称",
     "setupTokenProvidedByServer": "初始化令牌（由服务器提供）",
     "working": "处理中…",

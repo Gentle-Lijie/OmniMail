@@ -20,6 +20,8 @@
     "english": "中文 / English",
     "reconnect": "Reconnect",
     "signInWithPasskey": "Sign in with passkey",
+    "registerWithSetupToken": "Register a new passkey with the setup token",
+    "backToSignIn": "Back to sign in",
     "passkeyName": "Passkey name",
     "setupTokenProvidedByServer": "Setup token (provided by server)",
     "working": "Working…",

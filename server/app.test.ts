@@ -531,6 +531,46 @@ test("API authentication, CSRF, origin and first setup are enforced", async () =
     await app.close();
   }
 });
+test("a valid setup token registers a new passkey on an initialized workspace without login", async () => {
+  const { app, store } = await fixture();
+  try {
+    store.db
+      .prepare("INSERT INTO passkeys VALUES (?,?,?,?)")
+      .run("key-id", "device", "{}", new Date().toISOString());
+    assert.equal(
+      (
+        await app.inject({
+          method: "POST",
+          url: "/api/auth/register/options",
+          payload: {},
+        })
+      ).statusCode,
+      403,
+    );
+    assert.equal(
+      (
+        await app.inject({
+          method: "POST",
+          url: "/api/auth/register/options",
+          payload: { setupToken: "wrong" },
+        })
+      ).statusCode,
+      403,
+    );
+    assert.equal(
+      (
+        await app.inject({
+          method: "POST",
+          url: "/api/auth/register/options",
+          payload: { setupToken: "test-setup" },
+        })
+      ).statusCode,
+      200,
+    );
+  } finally {
+    await app.close();
+  }
+});
 test("templates version and rollback, settings secret masking, tasks snapshot", async () => {
   const { app, headers } = await fixture();
   try {

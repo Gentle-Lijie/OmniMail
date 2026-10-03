@@ -95,6 +95,7 @@ const error = ref("");
 const success = ref("");
 const name = ref("");
 const setupToken = ref("");
+const registerWithToken = ref(false);
 useFeedback({
   error,
   success,
@@ -423,17 +424,28 @@ const placeholderHint = computed(
         >{{ copy.reconnect }}</Button
       ><template v-if="auth"
         ><Button
-          v-if="!auth.needsSetup"
+          v-if="!auth.needsSetup && !registerWithToken"
           class="w-full mt-4"
           :disabled="busy"
           @click="login"
           >{{ copy.signInWithPasskey }}</Button
         >
-        <form v-if="auth.needsSetup" @submit.prevent="register">
+        <Button
+          v-else-if="!auth.needsSetup"
+          variant="outline"
+          class="w-full mt-4"
+          :disabled="busy"
+          @click="registerWithToken = false"
+          >{{ copy.backToSignIn }}</Button
+        >
+        <form
+          v-if="auth.needsSetup || registerWithToken"
+          @submit.prevent="register"
+        >
           <label class="field"
             ><span>{{ copy.passkeyName }}</span
             ><Input v-model="name" required autocomplete="username" /></label
-          ><label v-if="auth.needsSetup" class="field"
+          ><label v-if="auth.needsSetup || registerWithToken" class="field"
             ><span>{{ copy.setupTokenProvidedByServer }}</span
             ><Input
               v-model="setupToken"
@@ -442,10 +454,17 @@ const placeholderHint = computed(
           ><Button
             class="w-full mt-4"
             variant="outline"
-            :disabled="busy || !name.trim()"
+            :disabled="busy || !name.trim() || !setupToken.trim()"
             >{{ busy ? copy.working : copy.registerPasskey }}</Button
           >
-        </form></template
+        </form>
+        <Button
+          v-if="!auth.needsSetup && !registerWithToken"
+          variant="ghost"
+          class="mt-2"
+          @click="registerWithToken = true"
+          >{{ copy.registerWithSetupToken }}</Button
+        ></template
       >
       <p class="muted text-xs">
         {{ copy.passkeyRequirements }}

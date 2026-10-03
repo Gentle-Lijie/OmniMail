@@ -102,16 +102,19 @@ export function configureAuth(
     const body = req.body as any;
     let s = load(req);
     const initial = count() === 0;
+    const tokenOk =
+      !!setupToken &&
+      typeof body?.setupToken === "string" &&
+      hash(body.setupToken) === hash(setupToken);
     if (initial) {
-      if (
-        !setupToken ||
-        typeof body?.setupToken !== "string" ||
-        hash(body.setupToken) !== hash(setupToken)
-      )
+      if (!tokenOk)
         return reply
           .code(403)
           .send({ error: serverMessage("auth.validSetupTokenRequired") });
-    } else if (!s?.authenticated || !store.get("registrationEnabled", true))
+    } else if (
+      !tokenOk &&
+      (!s?.authenticated || !store.get("registrationEnabled", true))
+    )
       return reply.code(403).send({
         error: serverMessage("auth.passkeyRegistrationDisabledOrLoginRequired"),
       });
@@ -133,11 +136,15 @@ export function configureAuth(
     s.challenge = options.challenge;
     s.purpose = "register";
     s.initial = initial;
+    s.tokenAuthorized = tokenOk;
     s.challengeExpires = Date.now() + 300000;
     if (req.cookies.omnimail) persist(req, s);
     else {
-      const cookie = reply.getHeader("set-cookie") as string;
-      const token = cookie.match(/omnimail=([^;]+)/)?.[1];
+      const cookie = reply.getHeader("set-cookie") as
+        string | string[] | undefined;
+      const token = (Array.isArray(cookie) ? cookie[0] : cookie)?.match(
+        /omnimail=([^;]+)/,
+      )?.[1];
       if (token)
         db.prepare("UPDATE sessions SET value=? WHERE id=?").run(
           JSON.stringify(s),
@@ -152,9 +159,8 @@ export function configureAuth(
       !s ||
       s.purpose !== "register" ||
       s.challengeExpires < Date.now() ||
-      (!s.initial && !s.authenticated) ||
-      (s.initial && count() > 0) ||
-      (!s.initial && !store.get("registrationEnabled", true))
+      (!s.initial && !s.authenticated && !s.tokenAuthorized) ||
+      (s.initial && count() > 0)
     )
       return reply
         .code(403)
@@ -201,8 +207,11 @@ export function configureAuth(
     s.challengeExpires = Date.now() + 300000;
     if (req.cookies.omnimail) persist(req, s);
     else {
-      const cookie = reply.getHeader("set-cookie") as string;
-      const token = cookie.match(/omnimail=([^;]+)/)?.[1];
+      const cookie = reply.getHeader("set-cookie") as
+        string | string[] | undefined;
+      const token = (Array.isArray(cookie) ? cookie[0] : cookie)?.match(
+        /omnimail=([^;]+)/,
+      )?.[1];
       if (token)
         db.prepare("UPDATE sessions SET value=? WHERE id=?").run(
           JSON.stringify(s),
