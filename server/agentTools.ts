@@ -315,19 +315,21 @@ export function createAgentTools(store: Store, context: ToolContext) {
   );
   add(
     "update_current_draft",
-    "Immediately patch fields of the current draft. Requires the latest expectedRevision; only fields for its kind are accepted.",
+    `Immediately patch any field of the current ${workspace.kind} draft, including recipients/attendees. Editable fields: ${draftFields[workspace.kind].join(", ")}. Omitted fields stay unchanged; an empty string clears a field. Requires the latest expectedRevision. Never sends or queues the draft.`,
     z
       .object({
         draftId: identifier,
         expectedRevision: z.number().int().min(0),
         patch: z
-          .record(
-            z.enum([...new Set(Object.values(draftFields).flat())] as [
-              string,
-              ...string[],
-            ]),
-            z.string().max(500000),
+          .object(
+            Object.fromEntries(
+              draftFields[workspace.kind].map((field) => [
+                field,
+                z.string().max(500000).optional(),
+              ]),
+            ),
           )
+          .strict("Unsupported field for this draft kind.")
           .refine((p) => Object.keys(p).length > 0),
       })
       .strict(),

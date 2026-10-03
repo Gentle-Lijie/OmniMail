@@ -1,4 +1,35 @@
 import { message } from "./i18n";
+import { draftFields, type AgentWorkspace } from "../../../server/agentTypes";
+
+export { draftFields };
+
+export function applyDraftSuggestion(
+  workspace: Pick<AgentWorkspace, "kind" | "payload" | "mapping">,
+  suggestion: {
+    kind: AgentWorkspace["kind"];
+    payload: Record<string, string>;
+    mapping?: Record<string, string>;
+  },
+  columns: string[],
+) {
+  if (
+    suggestion.kind !== workspace.kind ||
+    Object.entries(suggestion.payload).some(
+      ([field, value]) =>
+        !draftFields[workspace.kind].includes(field) ||
+        typeof value !== "string",
+    ) ||
+    Object.values(suggestion.mapping ?? {}).some(
+      (column) => !columns.includes(column),
+    )
+  )
+    throw Error(message("workspaceView.invalidAiDraft"));
+  return {
+    payload: { ...workspace.payload, ...suggestion.payload },
+    mapping: { ...workspace.mapping, ...suggestion.mapping },
+  };
+}
+
 export interface AgentAttachment {
   kind: "text" | "image";
   name: string;

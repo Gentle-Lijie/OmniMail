@@ -54,7 +54,11 @@ import {
   type Template,
   type Task,
 } from "@/lib/api";
-import type { AgentAttachment, AgentWorkspace } from "@/lib/agent";
+import {
+  applyDraftSuggestion,
+  type AgentAttachment,
+  type AgentWorkspace,
+} from "@/lib/agent";
 import {
   fieldsIn,
   mappedRows,
@@ -116,7 +120,7 @@ interface Draft {
   attachments: AgentAttachment[];
   message: string;
   proposal?: Proposal;
-  suggestionContext?: Pick<Payload, "subject" | "html">;
+  suggestionContext?: Payload;
   suggestionSnapshot?: string;
   saved?: Task;
   savedSnapshot?: string;
@@ -727,10 +731,7 @@ async function ask(instruction: string) {
         target.proposal =
           proposal.hasSuggestion === false ? undefined : proposal;
         target.suggestionContext = target.proposal
-          ? {
-              subject: proposal.payload.subject,
-              html: proposal.payload.html,
-            }
+          ? { ...proposal.payload }
           : undefined;
         target.suggestionSnapshot = baseline;
         turn.status = "complete";
@@ -770,23 +771,11 @@ function applyProposal() {
   const target = draft.value,
     proposal = target.proposal;
   if (!proposal) return;
-  target.payload.subject = proposal.payload.subject;
-  target.payload.html = proposal.payload.html;
+  const applied = applyDraftSuggestion(target, proposal, target.columns);
+  target.payload = applied.payload as Payload;
+  target.mapping = applied.mapping;
   if (isDefaultDraftTitle(target.title))
     target.title = proposal.payload.subject || target.title;
-  const recipientFields = fieldsIn({
-    subject: "",
-    html: "",
-    ...Object.fromEntries(
-      (target.kind === "email"
-        ? ["to", "cc", "bcc"]
-        : ["requiredAttendees", "optionalAttendees"]
-      ).map((field) => [field, target.payload[field] || ""]),
-    ),
-  });
-  for (const [field, column] of Object.entries(proposal.mapping || {}))
-    if (target.columns.includes(column) && !recipientFields.includes(field))
-      target.mapping[field] = column;
   target.templateId = "none";
   selectedTemplate.value = "none";
   target.proposal = undefined;

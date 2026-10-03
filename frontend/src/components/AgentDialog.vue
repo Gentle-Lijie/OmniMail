@@ -25,7 +25,11 @@ import {
 } from "./ui/dialog";
 import { previewDocument } from "@/lib/mailMerge";
 import { api, type Kind, type Payload, type Message } from "@/lib/api";
-import { attachmentIssue, type AgentAttachment } from "@/lib/agent";
+import {
+  attachmentIssue,
+  draftFields,
+  type AgentAttachment,
+} from "@/lib/agent";
 import { notify } from "@/lib/notifications";
 
 const copy = useMessages("agentDialog");
@@ -38,7 +42,11 @@ const props = defineProps<{
   message: string;
   conversation: Message[];
   attachments: AgentAttachment[];
-  proposal?: { payload: Payload; message: string };
+  proposal?: {
+    payload: Payload;
+    message: string;
+    mapping?: Record<string, string>;
+  };
 }>();
 const emit = defineEmits<{
   "update:open": [boolean];
@@ -58,6 +66,19 @@ const files = ref<HTMLInputElement>();
 const transcript = ref<HTMLElement>();
 const uploading = ref(false);
 const expanded = ref(true);
+const proposalFields = computed(() =>
+  draftFields[props.kind]
+    .filter(
+      (field) =>
+        field !== "html" && Object.hasOwn(props.proposal?.payload ?? {}, field),
+    )
+    .map((field) => ({
+      field,
+      label:
+        copy.value.fieldLabels[field as keyof typeof copy.value.fieldLabels],
+      value: props.proposal!.payload[field],
+    })),
+);
 let uploadController: AbortController | undefined;
 const toolLabel = (name: string) =>
   (copy.value.tools as Record<string, string>)[name] || name;
@@ -349,9 +370,21 @@ function openChanged(open: boolean) {
               >{{ expanded ? copy.hidePreview : copy.showPreview }}</Button
             >
           </div>
-          <p class="break-words text-sm">
-            <span class="text-muted-foreground">{{ copy.subject }}:</span>
-            {{ proposal.payload.subject }}
+          <p
+            v-for="field in proposalFields"
+            :key="field.field"
+            class="break-words text-sm"
+          >
+            <span class="text-muted-foreground">{{ field.label }}:</span>
+            {{ field.value || copy.emptyField }}
+          </p>
+          <p
+            v-for="(column, field) in proposal.mapping"
+            :key="field"
+            class="break-words text-sm"
+          >
+            <span class="text-muted-foreground">{{ copy.fieldMapping }}:</span>
+            {{ field }} → {{ column }}
           </p>
           <iframe
             v-if="expanded"
@@ -365,7 +398,7 @@ function openChanged(open: boolean) {
             type="button"
             :disabled="busy || uploading"
             @click="emit('apply')"
-            >{{ copy.applySubjectBody }}</Button
+            >{{ copy.applyDraft }}</Button
           >
         </section>
       </div>

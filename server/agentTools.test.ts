@@ -6,7 +6,7 @@ import { createAI, ProviderError } from "./ai.js";
 import { createTasks } from "./tasks.js";
 import { createTemplates } from "./templates.js";
 import { readProviderStream } from "./agentStream.js";
-import { type AgentProgress } from "./agentTypes.js";
+import { draftFields, type AgentProgress } from "./agentTypes.js";
 
 const secret = "agent-tools-tests-isolated-at-least-32-characters";
 const mail = {
@@ -209,6 +209,66 @@ test("draft tools retain unrelated fields, require revision and compatible templ
     assert.equal(tools.state().templateId, undefined);
   } finally {
     store.db.close();
+  }
+});
+
+test("draft tools expose and edit every kind-specific field including recipients and cleared values", () => {
+  for (const kind of ["email", "event"] as const) {
+    const original = Object.fromEntries(
+      draftFields[kind].map((field) => [field, `original ${field}`]),
+    );
+    const { store, tools, events } = fixture({
+      workspace: {
+        draftId: "draft",
+        kind,
+        payload: original,
+        mapping: {},
+        recipientColumn: "",
+        revision: 0,
+      },
+    });
+    try {
+      const definition = tools.definitions.find(
+        (tool) => tool.name === "update_current_draft",
+      )!;
+      assert.deepEqual(
+        Object.keys(definition.parameters.properties.patch.properties),
+        draftFields[kind],
+      );
+      assert.equal(
+        definition.parameters.properties.patch.additionalProperties,
+        false,
+      );
+      for (const [index, field] of draftFields[kind].entries()) {
+        const value =
+          field === "cc" || field === "optionalAttendees"
+            ? ""
+            : `updated ${field}`;
+        const updated = call(tools, "update_current_draft", {
+          draftId: "draft",
+          expectedRevision: index,
+          patch: { [field]: value },
+        });
+        assert.equal(updated.payload[field], value);
+        assert.equal(updated.revision, index + 1);
+        for (const untouched of draftFields[kind].slice(index + 1))
+          assert.equal(updated.payload[untouched], original[untouched]);
+      }
+      assert.equal(
+        events.filter((event) => event.type === "workspace").length,
+        draftFields[kind].length,
+      );
+      assert.throws(() =>
+        call(tools, "update_current_draft", {
+          draftId: "draft",
+          expectedRevision: tools.state().revision,
+          patch: {},
+        }),
+      );
+      assert.equal(createTasks(store).list().length, 0);
+    } finally {
+      store.db.close();
+    }
   }
 });
 
@@ -536,6 +596,108 @@ const providerResponse = (
           },
   );
 
+test("all providers return full-field suggestions and retain all fields in follow-up context", async () => {
+  for (const protocol of [
+    "anthropic",
+    "openai-chat",
+    "openai-responses",
+  ] as const) {
+    for (const kind of ["email", "event"] as const) {
+      const store = createStore(":memory:", secret);
+      const payload = Object.fromEntries(
+        draftFields[kind].map((field) => [field, `suggested ${field}`]),
+      );
+      const ai = createAI(store, (async (_url, options) => {
+        const body = JSON.parse(String(options?.body));
+        const history =
+          protocol === "openai-responses" ? body.input : body.messages;
+        const context = JSON.parse(
+          history[protocol === "openai-chat" ? 1 : 0].content,
+        );
+        assert.deepEqual(context.request.suggestion, payload);
+        return providerResponse(protocol, undefined, {
+          kind,
+          message: "All fields suggested",
+          payload,
+        });
+      }) as typeof fetch);
+      try {
+        ai.save({
+          name: "Fake",
+          protocol,
+          baseUrl: "https://model.invalid/v1",
+          model: "test",
+          apiKey: "fake",
+          outputMode: "prompt",
+        });
+        const current = Object.fromEntries(
+          draftFields[kind].map((field) => [field, `original ${field}`]),
+        );
+        const result = await ai.agent({
+          kind,
+          message: "Refine all fields",
+          payload: current,
+          suggestion: payload,
+        });
+        assert.deepEqual(result.payload, payload);
+        assert.deepEqual(result.workspace.payload, current);
+        assert.equal(result.hasSuggestion, true);
+        assert.equal(result.workspaceChanged, false);
+        assert.equal(createTasks(store).list().length, 0);
+      } finally {
+        store.db.close();
+      }
+    }
+  }
+});
+
+test("recipient mapping-only suggestions remain available for application", async () => {
+  const store = createStore(":memory:", secret);
+  const payload = { ...mail, to: "{{recipient}}" };
+  const ai = createAI(store, (async () =>
+    providerResponse("openai-chat", undefined, {
+      message: "Use Email for the recipient",
+      kind: "email",
+      payload: {},
+      mapping: { recipient: "Email" },
+    })) as typeof fetch);
+  try {
+    ai.save({
+      name: "Fake",
+      protocol: "openai-chat",
+      baseUrl: "https://model.invalid/v1",
+      model: "test",
+      apiKey: "fake",
+      outputMode: "prompt",
+    });
+    const result = await ai.agent({
+      kind: "email",
+      message: "Suggest a recipient mapping",
+      payload,
+      columns: ["Email"],
+    });
+    assert.deepEqual(result.payload, payload);
+    assert.equal(result.hasSuggestion, true);
+    assert.equal(result.mapping?.recipient, "Email");
+    assert.deepEqual(result.workspace.mapping, {});
+    await assert.rejects(
+      ai.agent({
+        kind: "email",
+        message: "Refine",
+        payload,
+        suggestion: {
+          subject: "Subject",
+          html: "Body",
+          start: "2026-10-03T10:00:00",
+        },
+      }),
+      /unsupported draft fields/i,
+    );
+  } finally {
+    store.db.close();
+  }
+});
+
 test("all three providers perform read/edit/read loops with tool feedback and preserve sensitive batch rows", async () => {
   for (const protocol of [
     "anthropic",
@@ -568,7 +730,12 @@ test("all three providers perform read/edit/read loops with tool feedback and pr
             args: {
               draftId: "draft",
               expectedRevision: 0,
-              patch: { subject: "Updated by tool" },
+              patch: {
+                to: "updated@example.com",
+                cc: "copy@example.com",
+                bcc: "",
+                subject: "Updated by tool",
+              },
             },
           },
         ]);
@@ -600,7 +767,9 @@ test("all three providers perform read/edit/read loops with tool feedback and pr
       );
       assert.equal(round, 3);
       assert.equal(result.payload.subject, "Updated by tool");
-      assert.equal(result.payload.to, mail.to);
+      assert.equal(result.payload.to, "updated@example.com");
+      assert.equal(result.payload.cc, "copy@example.com");
+      assert.equal(result.payload.bcc, "");
       assert.equal(result.workspaceChanged, true);
       assert.equal(result.hasSuggestion, false);
       assert(

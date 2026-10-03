@@ -924,7 +924,7 @@ export function createAI(store: Store, fetcher: typeof fetch = fetch) {
             subject: z.string().max(998),
             html: z.string().max(500000),
           })
-          .strict()
+          .catchall(z.string().max(500000))
           .optional(),
         columns: z.array(z.string()).max(100).optional(),
         sampleRows: z.array(z.any()).max(3).optional(),
@@ -943,9 +943,10 @@ export function createAI(store: Store, fetcher: typeof fetch = fetch) {
     const provider = saved(defaultProviderId());
     // Full batch values are available to tools, never dumped into model input.
     if (
-      Object.keys(input.payload).some(
-        (field) => !fields[input.kind].includes(field),
-      )
+      [
+        ...Object.keys(input.payload),
+        ...Object.keys(input.suggestion ?? {}),
+      ].some((field) => !fields[input.kind].includes(field))
     )
       throw new ProviderError(
         "output_invalid",
@@ -1055,7 +1056,10 @@ export function createAI(store: Store, fetcher: typeof fetch = fetch) {
       reviewTaskId: toolkit.reviewTaskId(),
       hasSuggestion:
         JSON.stringify(result.payload) !==
-        JSON.stringify(toolkit.state().payload),
+          JSON.stringify(toolkit.state().payload) ||
+        Object.entries(result.mapping ?? {}).some(
+          ([field, column]) => toolkit.state().mapping[field] !== column,
+        ),
     };
   };
   return {
