@@ -40,6 +40,7 @@ import NotificationCenter from "@/components/NotificationCenter.vue";
 import { useFeedback } from "@/lib/notifications";
 import { fieldsIn } from "@/lib/mailMerge";
 import SettingsPage from "@/components/SettingsPage.vue";
+import AppFooter from "@/components/AppFooter.vue";
 import {
   api,
   setCsrf,
@@ -470,6 +471,7 @@ const placeholderHint = computed(
         {{ copy.passkeyRequirements }}
       </p></Card
     >
+    <AppFooter class="auth-footer" />
   </div>
   <div v-else class="shell">
     <aside class="sidebar rail">
@@ -766,6 +768,7 @@ const placeholderHint = computed(
           </div>
         </section>
       </div>
+      <AppFooter />
     </main>
   </div>
   <Dialog v-model:open="detailOpen"

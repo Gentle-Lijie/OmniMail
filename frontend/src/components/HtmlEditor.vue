@@ -125,17 +125,18 @@ function preview() {
         ><TabsTrigger value="source"
           ><Code :size="14" />{{ copy.rawHtml }}</TabsTrigger
         ></TabsList
+      ><span class="muted text-xs">{{
+        copy.highlightedFieldsClickToInsert
+      }}</span
       ><Button
+        class="editor-preview-button"
         type="button"
         variant="ghost"
         size="sm"
         :disabled="disabled"
         @click="preview"
         ><Eye :size="14" />{{ copy.preview }}<ExternalLink :size="12" /></Button
-      ><span class="muted text-xs">{{
-        copy.highlightedFieldsClickToInsert
-      }}</span></Tabs
-    >
+    ></Tabs>
     <div v-if="fields?.length" class="field-insert">
       <span>{{ copy.insertInto }}</span>
       <AppSelect

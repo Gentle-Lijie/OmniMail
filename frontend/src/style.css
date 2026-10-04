@@ -1184,6 +1184,10 @@ kbd {
   border-bottom: 1px solid var(--border);
   flex-wrap: wrap;
 }
+.editor-modes > .editor-preview-button {
+  margin-left: auto;
+  flex-shrink: 0;
+}
 .editor-modes [role="tab"] span {
   display: flex;
   align-items: center;
