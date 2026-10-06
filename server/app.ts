@@ -15,6 +15,7 @@ import { createTasks, eventSchema } from "./tasks.js";
 import { testEmailPayload } from "./testEmail.js";
 import { createAI, safeURL, ProviderError } from "./ai.js";
 import { createTemplates } from "./templates.js";
+import { initializeBuiltInTemplates } from "./builtInTemplates.js";
 import { readAgentAttachment } from "./agentAttachments.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
@@ -207,6 +208,7 @@ export async function buildApp(options: AppOptions) {
       return reply.send(stream);
     },
   );
+  initializeBuiltInTemplates(store);
   const templateService = createTemplates(store);
   const templates = () => templateService.list();
   app.get("/api/templates", async () => templates());
