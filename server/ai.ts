@@ -322,16 +322,15 @@ export function createAI(store: Store, fetcher: typeof fetch = fetch) {
     provider: ResolvedProvider,
     url: string,
     body: unknown,
-    signal = AbortSignal.timeout(45000),
+    signal?: AbortSignal,
     onProgress?: AgentOptions["onProgress"],
   ): Promise<any> => {
-    // Streaming requests use an inactivity watchdog instead of a fixed
-    // wall-clock cap: reasoning models can stream thoughts for well over
-    // 45s, so only abort when no output has arrived for 45s.
+    // No wall-clock budget: requests may run as long as they keep producing
+    // output. Only a 45s inactivity watchdog aborts stalled connections.
     const controller = new AbortController();
-    const follow = () => controller.abort(signal.reason);
-    if (signal.aborted) follow();
-    else signal.addEventListener("abort", follow, { once: true });
+    const follow = () => controller.abort(signal!.reason);
+    if (signal?.aborted) follow();
+    else signal?.addEventListener("abort", follow, { once: true });
     let idle: ReturnType<typeof setTimeout> | undefined;
     let idleAbort = false;
     const arm = () => {
@@ -347,7 +346,7 @@ export function createAI(store: Store, fetcher: typeof fetch = fetch) {
           onProgress(event);
         }
       : undefined;
-    if (onProgress) arm();
+    arm();
     try {
       const response = await fetcher(url, {
         method: "POST",
@@ -419,7 +418,7 @@ export function createAI(store: Store, fetcher: typeof fetch = fetch) {
       return data;
     } catch (error) {
       if (error instanceof ProviderError) throw error;
-      const timedOut = idleAbort || signal.aborted;
+      const timedOut = idleAbort || signal?.aborted;
       throw new ProviderError(
         timedOut ? "provider_timeout" : "provider_connection",
         timedOut
@@ -430,7 +429,7 @@ export function createAI(store: Store, fetcher: typeof fetch = fetch) {
       );
     } finally {
       clearTimeout(idle);
-      signal.removeEventListener("abort", follow);
+      signal?.removeEventListener("abort", follow);
     }
   };
   const discover = async (body: unknown) => {
@@ -685,12 +684,7 @@ export function createAI(store: Store, fetcher: typeof fetch = fetch) {
         ];
     }
     if (options.onProgress) body.stream = true;
-    const signal = options.signal
-      ? AbortSignal.any([
-          options.signal,
-          AbortSignal.timeout(tools ? 180000 : 45000),
-        ])
-      : AbortSignal.timeout(tools ? 180000 : 45000);
+    const signal = options.signal;
     let thoughtSeen = false,
       draftSeen = false;
     const progress = options.onProgress
@@ -718,8 +712,8 @@ export function createAI(store: Store, fetcher: typeof fetch = fetch) {
     } catch (error) {
       if (error instanceof ProviderError) throw error;
       throw new ProviderError(
-        signal.aborted ? "provider_timeout" : "agent_tools",
-        signal.aborted
+        signal?.aborted ? "provider_timeout" : "agent_tools",
+        signal?.aborted
           ? serverMessage("ai.providerRequestTimedOut")
           : error instanceof Error
             ? error.message
@@ -1009,9 +1003,7 @@ export function createAI(store: Store, fetcher: typeof fetch = fetch) {
       onProgress: options.onProgress,
       signal: options.signal,
     });
-    const runSignal = options.signal
-      ? AbortSignal.any([options.signal, AbortSignal.timeout(180000)])
-      : AbortSignal.timeout(180000);
+    const runSignal = options.signal;
     options.onProgress?.({ type: "progress", stage: "model" });
     const {
       rows: _rows,

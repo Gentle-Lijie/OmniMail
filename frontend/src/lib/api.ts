@@ -130,10 +130,12 @@ export async function api<T>(
   if (body !== undefined && !multipart)
     headers["Content-Type"] = "application/json";
   const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(),
-    path === "/agent" ? 195000 : 60000,
-  );
+  // Streaming requests carry no fixed timeout: stalls are caught by the
+  // server's 45s idle watchdog, and a dropped connection fails the stream
+  // read. Plain JSON calls keep a 60s cap.
+  const timeout = options.onProgress
+    ? undefined
+    : setTimeout(() => controller.abort(), 60000);
   try {
     const response = await fetch("/api" + path, {
       method,
