@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { useMessages } from "@/lib/i18n";
+import en from "@/locales/en.json";
 import { Github } from "lucide-vue-next";
 
-const copy = useMessages("appFooter");
+const copy = en.appFooter;
 </script>
 
 <template>
