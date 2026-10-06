@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-export const agentSkillNames = ["server-drafts"] as const;
+export const agentSkillNames = ["server-drafts", "recipient-repair"] as const;
 export const agentSkills = agentSkillNames.map((name) => {
   const text = readFileSync(
     new URL(`./skills/${name}/SKILL.md`, import.meta.url),

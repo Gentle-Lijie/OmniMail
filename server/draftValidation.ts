@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { parseRecipients } from "./recipients.js";
+import { findRecipientIssues } from "./recipients.js";
 import { validatePayload } from "./tasks.js";
 import type { AgentWorkspace } from "./agentTypes.js";
 
@@ -55,9 +55,12 @@ export interface DraftIssue {
   code: string;
   message: string;
 }
-export function inspectDraft(workspace: AgentWorkspace, rows: BatchRow[]) {
+export function inspectDraft(
+  workspace: AgentWorkspace,
+  rows: BatchRow[],
+  seen = new Set<string>(),
+) {
   const issues: DraftIssue[] = [];
-  const seen = new Set<string>();
   const add = (row: number, field: string, code: string, message: string) =>
     issues.push({ row, field, code, message });
   if (rows.length && !workspace.recipientColumn)
@@ -95,22 +98,17 @@ export function inspectDraft(workspace: AgentWorkspace, rows: BatchRow[]) {
           error instanceof Error ? error.message : "Invalid payload.",
         );
     }
-    const recipientField =
-      workspace.kind === "email" ? "to" : "requiredAttendees";
-    for (const token of workspace.kind === "email"
-      ? parseRecipients(payload[recipientField] || "")
-      : []) {
-      if (token.kind !== "email") continue;
-      const address = token.value.toLowerCase();
-      if (seen.has(address))
-        add(
-          position,
-          recipientField,
-          "duplicate_recipient",
-          `Duplicate recipient: ${token.value}`,
-        );
-      seen.add(address);
-    }
+    for (const issue of findRecipientIssues(workspace.kind, payload, seen))
+      add(
+        position,
+        issue.field,
+        issue.code,
+        issue.code === "duplicate_recipient"
+          ? `Duplicate recipient: ${issue.address}`
+          : issue.code === "recipient_required"
+            ? "Recipient is required."
+            : `Invalid recipient: ${issue.address}`,
+      );
   }
   return issues;
 }

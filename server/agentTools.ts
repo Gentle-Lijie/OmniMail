@@ -1,7 +1,12 @@
+import { repairDraftRecipients, type RepairReport } from "./recipientRepair.js";
 import { agentSkills, agentSkillNames } from "./agentSkills.js";
 import { z } from "zod";
 import { createTemplates, templateSchema } from "./templates.js";
-import { createDrafts, type ServerDraft } from "./drafts.js";
+import {
+  createDrafts,
+  draftContentSchema,
+  type ServerDraft,
+} from "./drafts.js";
 import { createTasks } from "./tasks.js";
 import { hash, id, type Store } from "./store.js";
 import { serverMessage } from "./i18n.js";
@@ -124,23 +129,24 @@ export function createAgentTools(store: Store, context: ToolContext) {
     if (revision !== workspace.revision)
       throw Error("Draft changed. Read its latest revision before editing.");
   };
+  const workspaceContent = (next = workspace) => ({
+    ...(persisted
+      ? drafts.content(persisted)
+      : {
+          title: next.payload.subject || "",
+          columns: context.columns,
+          rows: context.rows,
+          conversation: context.conversation,
+          attachments: context.attachments,
+        }),
+    kind: next.kind,
+    payload: next.payload,
+    templateId: next.templateId,
+    mapping: next.mapping,
+    recipientColumn: next.recipientColumn,
+  });
   const persist = (next = workspace) => {
-    const content = {
-      ...(persisted
-        ? drafts.content(persisted)
-        : {
-            title: next.payload.subject || "",
-            columns: context.columns,
-            rows: context.rows,
-            conversation: context.conversation,
-            attachments: context.attachments,
-          }),
-      kind: next.kind,
-      payload: next.payload,
-      templateId: next.templateId,
-      mapping: next.mapping,
-      recipientColumn: next.recipientColumn,
-    };
+    const content = workspaceContent(next);
     persisted = persisted
       ? drafts.update(persisted.id, persisted.revision, content, "agent")
       : drafts.create(content, next.draftId, "agent");
@@ -516,6 +522,103 @@ export function createAgentTools(store: Store, context: ToolContext) {
     },
     true,
   );
+  const repairReport = (report: RepairReport) => ({
+    ...report,
+    changes: report.changes.slice(0, 100),
+    unresolved: report.unresolved.slice(0, 100),
+    truncated: report.changes.length > 100 || report.unresolved.length > 100,
+  });
+  const adoptRepair = (draft: ServerDraft) => {
+    persisted = draft;
+    context.rows = draft.rows;
+    context.columns = draft.columns;
+    workspace = {
+      ...workspace,
+      payload: draft.payload,
+      mapping: draft.mapping,
+      recipientColumn: draft.recipientColumn,
+      templateId: draft.templateId,
+      revision: draft.revision,
+    };
+    changed = true;
+    saved = undefined;
+    reviewTaskId = undefined;
+    emit({
+      type: "workspace",
+      workspace: state(),
+      batch: {
+        rows: draft.rows,
+        columns: draft.columns,
+        fileName: draft.fileName,
+        manualTo: draft.manualTo,
+        undoRevision: draft.undoRevision,
+      },
+    });
+    emit({ type: "refresh" });
+  };
+  add(
+    "repair_current_draft",
+    "Preview or apply deterministic recipient cleanup and deduplication. Preserves unknown invalid addresses. Optional explicit replacements or zero-based excluded row indices. Never sends; returns a bounded change report and supports undo.",
+    z
+      .object({
+        expectedRevision: z.number().int().min(0),
+        preview: z.boolean().default(true),
+        replacements: z
+          .record(safeKey, z.string().max(10000))
+          .refine((value) => Object.keys(value).length <= 100)
+          .optional(),
+        excludeRows: z
+          .array(z.number().int().min(0).max(999))
+          .max(1000)
+          .optional(),
+      })
+      .strict(),
+    ({ expectedRevision, preview, replacements, excludeRows }) => {
+      checkRevision(expectedRevision);
+      const options = { replacements, excludeRows };
+      if (preview && !persisted)
+        return {
+          report: repairReport(
+            repairDraftRecipients(
+              draftContentSchema.parse(workspaceContent()),
+              options,
+            ).report,
+          ),
+          revision: workspace.revision,
+        };
+      const current = persisted ?? persist();
+      const result = drafts.repair(
+        current.id,
+        current.revision,
+        options,
+        preview,
+        "agent",
+      );
+      if ("draft" in result && result.draft) adoptRepair(result.draft);
+      return {
+        report: repairReport(result.report),
+        revision: workspace.revision,
+        canUndo: !!persisted?.undoRevision,
+      };
+    },
+    true,
+  );
+  add(
+    "undo_current_draft_repair",
+    "Undo the last recipient repair using the latest expectedRevision. Preserves later body and conversation edits; refuses to undo over changed recipients or batch data. Never sends.",
+    z.object({ expectedRevision: z.number().int().min(1) }).strict(),
+    ({ expectedRevision }) => {
+      checkRevision(expectedRevision);
+      const restored = drafts.undoRepair(
+        workspace.draftId,
+        expectedRevision,
+        "agent",
+      );
+      adoptRepair(restored);
+      return { id: restored.id, revision: restored.revision, restored: true };
+    },
+    true,
+  );
   add(
     "preview_draft",
     "Render the current draft or one batch row (zero-based rowIndex), escaping HTML substitutions. Returns recipients and body.",
@@ -849,7 +952,7 @@ export function createAgentTools(store: Store, context: ToolContext) {
           workspace = cached.workspace;
           persisted = latest;
           changed = true;
-          emit({ type: "workspace", workspace: state() });
+          emit({ type: "workspace", workspace: state(), batch: cached.batch });
         }
         if (cached.saved) saved = cached.saved;
         if (cached.reviewTaskId) {
@@ -866,6 +969,16 @@ export function createAgentTools(store: Store, context: ToolContext) {
         key,
         JSON.stringify({
           result,
+          batch:
+            previousRevision !== workspace.revision && persisted
+              ? {
+                  rows: context.rows,
+                  columns: context.columns,
+                  fileName: persisted.fileName,
+                  manualTo: persisted.manualTo,
+                  undoRevision: persisted.undoRevision,
+                }
+              : undefined,
           saved,
           reviewTaskId,
           workspace:

@@ -210,7 +210,9 @@
       "get_server_draft": "Read server draft",
       "open_server_draft": "Open server draft",
       "update_server_draft": "Update server draft",
-      "get_skill": "Read workflow skill"
+      "get_skill": "Read workflow skill",
+      "repair_current_draft": "Repair recipients",
+      "undo_current_draft_repair": "Undo recipient repair"
     },
     "toolOperations": "Tool operations"
   },
@@ -399,7 +401,8 @@
       "save": "Saving draft…",
       "agent": "Agent is drafting…",
       "load": "Loading draft…",
-      "other": "Working on your draft…"
+      "other": "Working on your draft…",
+      "repair": "Repairing recipients…"
     },
     "agentName": "Agent",
     "emailColumnConfirmed": "Confirmed email column “{column}”. Insert fields and review the personalized batch.",
@@ -439,7 +442,26 @@
     "reloadDraftWarning": "The server version will replace this draft’s local edits. Save a copy first to retain them.",
     "localChangesNeedCopy": "This draft has unsaved local edits. Save them or keep a copy first.",
     "copySuffix": " (copy)",
-    "legacyDraftWarning": "The old task did not store original rows or mappings. All rendered items are retained for individual editing and review."
+    "legacyDraftWarning": "The old task did not store original rows or mappings. All rendered items are retained for individual editing and review.",
+    "recipientRepairHelp": "Fix format and duplicates. Mailbox activity cannot be verified; unknown addresses stay unresolved.",
+    "repairRecipients": "Repair recipients",
+    "undoRecipientRepair": "Undo recipient repair",
+    "excludeSelectedRows": "Exclude selected rows",
+    "originalAddress": "Original email address",
+    "replacementAddress": "Replacement email address",
+    "replaceAddresses": "Replace addresses in bulk",
+    "selectRows": "Select",
+    "selectRepairRow": "Select row {row}",
+    "recipientRepairPreview": "Recipient repair preview",
+    "recipientRepairWarning": "Keep the first primary email target. Remove later rows only when all targets are duplicates. Repair supports undo; later recipient or batch edits invalidate undo.",
+    "repairSummary": "Change {changed} cells, remove {duplicates} duplicate addresses and {removed} rows; {unresolved} issues remain.",
+    "repairComplete": "Changed {changed} cells and removed {removed} rows; {unresolved} issues remain. Review the entire batch again.",
+    "repairUndone": "Recipient repair undone. Recipients and removed rows restored.",
+    "complexRecipientsNeedManualEdit": "Check these complex recipient fields manually:",
+    "rowRemoved": "Removed",
+    "showingFirstRepairChanges": "Showing the first 20 changes. Inspect the complete list after applying.",
+    "nothingToRepair": "No automatic changes available. Edit unresolved addresses or provide replacements.",
+    "applyRecipientRepair": "Apply repair"
   },
   "dialogContent": {
     "close": "Close"

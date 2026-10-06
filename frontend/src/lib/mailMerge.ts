@@ -1,6 +1,6 @@
 import { message } from "./i18n";
 import type { Kind, Payload } from "./api";
-import { parseRecipients } from "./recipients";
+import { findRecipientIssues } from "../../../server/recipients";
 export type DataRow = Record<string, unknown>;
 export interface MergeIssue {
   row: number;
@@ -76,10 +76,6 @@ export function mergeIssues(
   const issues: MergeIssue[] = [];
   const seen = new Set<string>();
   const fields = fieldsIn(payload);
-  const recipients =
-    kind === "email"
-      ? ["to", "cc", "bcc"]
-      : ["requiredAttendees", "optionalAttendees"];
   const samples = rows.length ? rows : [{}];
   samples.forEach((row, rowIndex) => {
     const position = rows.length ? rowIndex + 1 : 0;
@@ -93,36 +89,25 @@ export function mergeIssues(
           message: message("mailMerge.missingField"),
         });
     }
-    for (const field of recipients) {
-      const rendered = renderFields(payload[field] || "", row, mapping);
-      const addresses = parseRecipients(rendered);
-      if (field === "to" && !addresses.length)
-        issues.push({
-          row: position,
-          field,
-          message: message("mailMerge.recipientRequired"),
-        });
-      if (/{{/.test(rendered)) continue;
-      for (const token of addresses) {
-        const address = token.value;
-        if (token.kind !== "email")
-          issues.push({
-            row: position,
-            field,
-            message: message("mailMerge.invalidEmail", { address }),
-          });
-        if (field === "to") {
-          const normalized = address.toLowerCase();
-          if (seen.has(normalized))
-            issues.push({
-              row: position,
-              field,
-              message: message("mailMerge.duplicateRecipient", { address }),
-            });
-          seen.add(normalized);
-        }
-      }
-    }
+    const renderedPayload = Object.fromEntries(
+      Object.entries(payload).map(([field, value]) => [
+        field,
+        renderFields(value, row, mapping),
+      ]),
+    );
+    for (const issue of findRecipientIssues(kind, renderedPayload, seen))
+      issues.push({
+        row: position,
+        field: issue.field,
+        message:
+          issue.code === "recipient_required"
+            ? message("mailMerge.recipientRequired")
+            : issue.code === "duplicate_recipient"
+              ? message("mailMerge.duplicateRecipient", {
+                  address: issue.address!,
+                })
+              : message("mailMerge.invalidEmail", { address: issue.address! }),
+      });
     const subject = renderFields(payload.subject, row, mapping);
     if (!subject.trim())
       issues.push({

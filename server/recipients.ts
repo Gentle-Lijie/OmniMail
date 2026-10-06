@@ -11,27 +11,96 @@ export function isEmailAddress(value: string): boolean {
   );
 }
 
-export function parseRecipients(value: string): RecipientToken[] {
-  // Match display-name groups before splitting on whitespace or punctuation.
-  // Never extract a valid substring from a malformed address: keep it visible.
-  const parts = value.matchAll(
-    /(?:"[^"\r\n]*"|[^@<>\r\n,;，；、|/\\()[\]{}:：]+)?\s*<([^<>]*)>|(?:{{\s*[^{}]+?\s*}}|[^\s,;，；、|/\\()[\]{}<>"“”‘’:：])+/g,
+export function parseRecipients(
+  value: string,
+  retainUnparsed = false,
+): RecipientToken[] {
+  const parts = Array.from(
+    value.matchAll(
+      /(?:"[^"\r\n]*"|[^@<>\r\n,;，；、|/\\()[\]{}:：]+)?\s*<([^<>]*)>|(?:{{\s*[^{}]+?\s*}}|[^\s,;，；、|/\\()[\]{}<>"“”‘’:：])+/g,
+    ),
   );
-  return Array.from(parts, (match) => {
-    const value = (match[1] ?? match[0]).trim() || match[0].trim();
-    return {
-      kind: /{{\s*[^{}]+?\s*}}/.test(value)
+  const tokens: RecipientToken[] = [];
+  let offset = 0;
+  const remainder = (text: string) => {
+    if (
+      retainUnparsed &&
+      text.trim() &&
+      !/^[\s,;，；、|/\\()[\]:：]+$/.test(text)
+    )
+      tokens.push({
+        kind: "invalid",
+        value: text
+          .trim()
+          .replace(/^[\s,;，；、|/\\:：]+|[\s,;，；、|/\\:：]+$/g, ""),
+      });
+  };
+  for (const match of parts) {
+    remainder(value.slice(offset, match.index));
+    const token = (match[1] ?? match[0]).trim() || match[0].trim();
+    tokens.push({
+      kind: /{{\s*[^{}]+?\s*}}/.test(token)
         ? "placeholder"
-        : isEmailAddress(value)
+        : isEmailAddress(token)
           ? "email"
           : "invalid",
-      value,
-    };
-  });
+      value: token,
+    });
+    offset = match.index! + match[0].length;
+  }
+  remainder(value.slice(offset));
+  return tokens;
 }
 
 export function normalizeRecipients(value: string): string {
   return parseRecipients(value)
     .map((token) => token.value)
     .join(";");
+}
+
+export const recipientFields = (kind: "email" | "event") =>
+  kind === "email"
+    ? ["to", "cc", "bcc"]
+    : ["requiredAttendees", "optionalAttendees"];
+export interface RecipientIssue {
+  field: string;
+  code: "invalid_recipient" | "recipient_required" | "duplicate_recipient";
+  address?: string;
+}
+// Used by both the browser and server after placeholder substitution.
+export function findRecipientIssues(
+  kind: "email" | "event",
+  payload: Record<string, string>,
+  seenTargets = new Set<string>(),
+): RecipientIssue[] {
+  const issues: RecipientIssue[] = [],
+    envelope = new Set<string>();
+  for (const field of recipientFields(kind)) {
+    const value = payload[field] || "";
+    if (/{{/.test(value)) continue;
+    const tokens = parseRecipients(value, true);
+    if (!tokens.length && value.trim() && !/^[\s,;，；、|/\\:：]+$/.test(value))
+      issues.push({ field, code: "invalid_recipient", address: value });
+    if (field === "to" && !tokens.length)
+      issues.push({ field, code: "recipient_required" });
+    for (const token of tokens) {
+      if (token.kind !== "email") {
+        issues.push({ field, code: "invalid_recipient", address: token.value });
+        continue;
+      }
+      const key = token.value.toLowerCase();
+      if (
+        envelope.has(key) ||
+        (kind === "email" && field === "to" && seenTargets.has(key))
+      )
+        issues.push({
+          field,
+          code: "duplicate_recipient",
+          address: token.value,
+        });
+      envelope.add(key);
+      if (kind === "email" && field === "to") seenTargets.add(key);
+    }
+  }
+  return issues;
 }

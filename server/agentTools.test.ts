@@ -51,11 +51,11 @@ const template = {
   fields: ["name"],
 };
 
-test("registry exposes all 28 business tools with bounded provider schemas", () => {
+test("registry exposes all 30 business tools with bounded provider schemas", () => {
   const { store, tools } = fixture();
   try {
-    assert.equal(tools.definitions.length, 28);
-    assert.equal(new Set(tools.definitions.map((t) => t.name)).size, 28);
+    assert.equal(tools.definitions.length, 30);
+    assert.equal(new Set(tools.definitions.map((t) => t.name)).size, 30);
     for (const definition of tools.definitions) {
       assert.equal(definition.parameters.type, "object");
       assert.equal(definition.parameters.additionalProperties, false);
@@ -717,7 +717,7 @@ test("all three providers perform read/edit/read loops with tool feedback and pr
     const events: AgentProgress[] = [];
     const ai = createAI(store, (async (_url, options) => {
       const body = JSON.parse(String(options?.body));
-      assert.equal(body.tools.length, 29);
+      assert.equal(body.tools.length, 31);
       assert(!JSON.stringify(body).includes("private-row-value"));
       round++;
       if (round === 1)

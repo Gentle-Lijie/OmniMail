@@ -5,6 +5,7 @@ export interface SyncedDraft {
   serverSnapshot: string;
   syncState: "pending" | "saving" | "saved" | "error" | "conflict";
   syncError: string;
+  undoRevision?: number;
 }
 export function createDraftSync<T extends SyncedDraft, C>(options: {
   content: (draft: T) => C;
@@ -12,7 +13,7 @@ export function createDraftSync<T extends SyncedDraft, C>(options: {
     id: string,
     revision: number,
     content: C,
-  ) => Promise<{ revision: number }>;
+  ) => Promise<{ revision: number; undoRevision?: number }>;
 }) {
   const pending = new Map<string, Promise<void>>();
   const dirty = (draft: T) =>
@@ -39,6 +40,7 @@ export function createDraftSync<T extends SyncedDraft, C>(options: {
             content,
           );
           draft.serverRevision = saved.revision;
+          draft.undoRevision = saved.undoRevision;
           draft.serverSnapshot = snapshot;
         } catch (error) {
           draft.syncState =

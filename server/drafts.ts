@@ -8,6 +8,11 @@ import {
   inspectDraft,
   renderDraft,
 } from "./draftValidation.js";
+import {
+  repairDraftRecipients,
+  recipientRepairFingerprint,
+  type RepairOptions,
+} from "./recipientRepair.js";
 import { createTasks } from "./tasks.js";
 import { validateAttachments } from "./agentAttachments.js";
 import { serverMessage } from "./i18n.js";
@@ -100,6 +105,7 @@ export interface ServerDraft extends DraftContent {
   revision: number;
   createdAt: string;
   updatedAt: string;
+  undoRevision?: number;
 }
 export class DraftError extends Error {
   constructor(
@@ -116,11 +122,18 @@ export function createDrafts(store: Store) {
       .prepare("SELECT value FROM drafts WHERE id=?")
       .get(draftId) as { value: string } | undefined;
     if (!row) throw new DraftError("draft_not_found", 404);
-    return JSON.parse(row.value);
+    const draft: ServerDraft = JSON.parse(row.value);
+    const undo = store.db
+      .prepare("SELECT revision FROM draft_repairs WHERE draftId=?")
+      .get(draftId) as { revision: number } | undefined;
+    if (undo?.revision === draft.revision) draft.undoRevision = undo.revision;
+    return draft;
   };
   const write = (draft: ServerDraft) => {
     store.db
-      .prepare("INSERT OR REPLACE INTO drafts VALUES (?,?,?)")
+      .prepare(
+        "INSERT INTO drafts VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value,updatedAt=excluded.updatedAt",
+      )
       .run(draft.id, JSON.stringify(draft), draft.updatedAt);
     return structuredClone(draft);
   };
@@ -130,6 +143,7 @@ export function createDrafts(store: Store) {
       revision: _revision,
       createdAt: _created,
       updatedAt: _updated,
+      undoRevision: _undo,
       ...value
     } = draft;
     return value;
@@ -179,8 +193,23 @@ export function createDrafts(store: Store) {
         updatedAt: new Date().toISOString(),
         revision: previous.revision + 1,
       });
+      const undo = store.db
+        .prepare("SELECT revision FROM draft_repairs WHERE draftId=?")
+        .get(draftId) as { revision: number } | undefined;
+      if (
+        undo?.revision === previous.revision &&
+        recipientRepairFingerprint(content(previous)) ===
+          recipientRepairFingerprint(value)
+      )
+        store.db
+          .prepare("UPDATE draft_repairs SET revision=? WHERE draftId=?")
+          .run(draft.revision, draftId);
+      else
+        store.db
+          .prepare("DELETE FROM draft_repairs WHERE draftId=?")
+          .run(draftId);
       store.audit(`draft.updated:${draftId}:${draft.revision}`, source);
-      return draft;
+      return get(draftId);
     })();
   const list = (offset = 0, limit = 100) => {
     const rows = store.db
@@ -228,9 +257,10 @@ export function createDrafts(store: Store) {
         recipientColumn: draft.recipientColumn,
         revision,
       };
+      const seen = new Set<string>();
       const issues = draft.legacyItems.length
         ? draft.legacyItems.flatMap((payload, index) =>
-            inspectDraft({ ...workspace, payload }, []).map((issue) => ({
+            inspectDraft({ ...workspace, payload }, [], seen).map((issue) => ({
               ...issue,
               row: index + 1,
             })),
@@ -260,6 +290,63 @@ export function createDrafts(store: Store) {
       );
       store.audit(`draft.reviewed:${draftId}:${revision}`, source);
       return task;
+    })();
+  const repair = (
+    draftId: string,
+    revision: number,
+    options: RepairOptions = {},
+    preview = false,
+    source = "web",
+  ) =>
+    store.db.transaction(() => {
+      const current = check(draftId, revision);
+      const result = repairDraftRecipients(content(current), options);
+      if (preview) return { report: result.report };
+      const updated = update(draftId, revision, result.draft, source);
+      if (updated.revision !== current.revision) {
+        store.db
+          .prepare("INSERT OR REPLACE INTO draft_repairs VALUES (?,?,?)")
+          .run(draftId, JSON.stringify(content(current)), updated.revision);
+        store.audit(`draft.repaired:${draftId}:${updated.revision}`, source);
+      }
+      return { draft: get(draftId), report: result.report };
+    })();
+  const undoRepair = (draftId: string, revision: number, source = "web") =>
+    store.db.transaction(() => {
+      check(draftId, revision);
+      const undo = store.db
+        .prepare("SELECT value,revision FROM draft_repairs WHERE draftId=?")
+        .get(draftId) as { value: string; revision: number } | undefined;
+      if (!undo || undo.revision !== revision)
+        throw new DraftError("draft_conflict", 409);
+      const current = get(draftId),
+        before: DraftContent = JSON.parse(undo.value);
+      const recipientPatch = Object.fromEntries(
+        (current.kind === "email"
+          ? ["to", "cc", "bcc"]
+          : ["requiredAttendees", "optionalAttendees"]
+        ).map((field) => [field, before.payload[field] || ""]),
+      );
+      const restored = update(
+        draftId,
+        revision,
+        {
+          ...content(current),
+          payload: { ...current.payload, ...recipientPatch },
+          rows: before.rows,
+          columns: before.columns,
+          mapping: before.mapping,
+          recipientColumn: before.recipientColumn,
+          manualTo: before.manualTo,
+          fileName: before.fileName,
+        },
+        source,
+      );
+      store.db
+        .prepare("DELETE FROM draft_repairs WHERE draftId=?")
+        .run(draftId);
+      store.audit(`draft.repairUndone:${draftId}:${restored.revision}`, source);
+      return get(draftId);
     })();
   const fromTask = (taskId: string, source = "web") => {
     const task = createTasks(store).get(taskId);
@@ -314,5 +401,7 @@ export function createDrafts(store: Store) {
     review,
     fromTask,
     migrateLegacy,
+    repair,
+    undoRepair,
   };
 }

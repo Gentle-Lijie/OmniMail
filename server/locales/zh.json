@@ -146,5 +146,12 @@
     "draft_not_found": "服务器草稿已不存在。",
     "draft_invalid": "请修正草稿内容和整批名单后再审核。",
     "stale_review": "草稿在审核后已修改或删除，请打开最新版本并重新审核。"
+  },
+  "recipientRepair": {
+    "legacyUnavailable": "旧批量草稿需逐条编辑；原始映射不可用。",
+    "invalidReplacement": "请填写一个原邮箱地址和一个有效的替换邮箱地址。",
+    "conflictingReplacement": "同一个原地址不能指定不同的替换地址。",
+    "invalidRow": "排除的行已不存在，请重新选择。",
+    "confirmColumn": "批量修复前请先确认收件人列。"
   }
 }

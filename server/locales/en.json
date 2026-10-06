@@ -146,5 +146,12 @@
     "draft_not_found": "Server draft no longer exists.",
     "draft_invalid": "Fix draft content and all batch rows before review.",
     "stale_review": "The draft changed or was deleted after review. Open its latest version and review it again."
+  },
+  "recipientRepair": {
+    "legacyUnavailable": "Legacy batches must be edited item by item; original mappings are unavailable.",
+    "invalidReplacement": "Provide one source address and one valid replacement email.",
+    "conflictingReplacement": "Conflicting replacements for the same address.",
+    "invalidRow": "Excluded row is out of range. Select the rows again.",
+    "confirmColumn": "Confirm the recipient column before repairing a batch."
   }
 }

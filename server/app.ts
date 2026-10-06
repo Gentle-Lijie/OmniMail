@@ -320,7 +320,7 @@ export async function buildApp(options: AppOptions) {
       .parse(req.query);
     return drafts.list(query.offset, query.limit);
   });
-  app.post("/api/drafts", {bodyLimit: 18 * 1024 * 1024}, async (req) => {
+  app.post("/api/drafts", { bodyLimit: 18 * 1024 * 1024 }, async (req) => {
     const body = z
       .object({ id: draftId.optional(), content: draftContentSchema })
       .strict()
@@ -330,20 +330,24 @@ export async function buildApp(options: AppOptions) {
   app.get<{ Params: { id: string } }>("/api/drafts/:id", async (req) =>
     drafts.get(draftId.parse(req.params.id)),
   );
-  app.put<{ Params: { id: string } }>("/api/drafts/:id", {bodyLimit: 18 * 1024 * 1024}, async (req) => {
-    const body = z
-      .object({
-        expectedRevision: expectedRevisionSchema,
-        content: draftContentSchema,
-      })
-      .strict()
-      .parse(req.body);
-    return drafts.update(
-      draftId.parse(req.params.id),
-      body.expectedRevision,
-      body.content,
-    );
-  });
+  app.put<{ Params: { id: string } }>(
+    "/api/drafts/:id",
+    { bodyLimit: 18 * 1024 * 1024 },
+    async (req) => {
+      const body = z
+        .object({
+          expectedRevision: expectedRevisionSchema,
+          content: draftContentSchema,
+        })
+        .strict()
+        .parse(req.body);
+      return drafts.update(
+        draftId.parse(req.params.id),
+        body.expectedRevision,
+        body.content,
+      );
+    },
+  );
   app.delete<{ Params: { id: string } }>("/api/drafts/:id", async (req) => {
     const body = z
       .object({ expectedRevision: expectedRevisionSchema })
@@ -360,6 +364,45 @@ export async function buildApp(options: AppOptions) {
         .strict()
         .parse(req.body);
       return drafts.review(draftId.parse(req.params.id), body.expectedRevision);
+    },
+  );
+  app.post<{ Params: { id: string } }>(
+    "/api/drafts/:id/repair",
+    async (req) => {
+      const body = z
+        .object({
+          expectedRevision: expectedRevisionSchema,
+          preview: z.boolean().default(false),
+          replacements: z
+            .record(z.string().min(1).max(10000), z.string().min(1).max(10000))
+            .refine((value) => Object.keys(value).length <= 100)
+            .optional(),
+          excludeRows: z
+            .array(z.number().int().min(0).max(999))
+            .max(1000)
+            .optional(),
+        })
+        .strict()
+        .parse(req.body);
+      return drafts.repair(
+        draftId.parse(req.params.id),
+        body.expectedRevision,
+        { replacements: body.replacements, excludeRows: body.excludeRows },
+        body.preview,
+      );
+    },
+  );
+  app.post<{ Params: { id: string } }>(
+    "/api/drafts/:id/undo-repair",
+    async (req) => {
+      const body = z
+        .object({ expectedRevision: expectedRevisionSchema })
+        .strict()
+        .parse(req.body);
+      return drafts.undoRepair(
+        draftId.parse(req.params.id),
+        body.expectedRevision,
+      );
     },
   );
   app.post<{ Params: { id: string } }>(

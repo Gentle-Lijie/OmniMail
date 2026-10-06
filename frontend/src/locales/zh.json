@@ -210,7 +210,9 @@
       "get_server_draft": "读取服务器草稿",
       "open_server_draft": "打开服务器草稿",
       "update_server_draft": "更新服务器草稿",
-      "get_skill": "读取工作流 skill"
+      "get_skill": "读取工作流 skill",
+      "repair_current_draft": "修复收件邮箱",
+      "undo_current_draft_repair": "撤销邮箱修复"
     },
     "toolOperations": "工具操作"
   },
@@ -399,7 +401,8 @@
       "save": "正在保存草稿…",
       "agent": "Agent 正在起草…",
       "load": "正在读取草稿…",
-      "other": "正在处理…"
+      "other": "正在处理…",
+      "repair": "正在修复邮箱…"
     },
     "agentName": "Agent",
     "emailColumnConfirmed": "已确认邮箱列「{column}」。可插入字段并检查整批个性化内容。",
@@ -439,7 +442,26 @@
     "reloadDraftWarning": "当前草稿的本地编辑将被服务器版本替换。建议先另存为副本。",
     "localChangesNeedCopy": "当前草稿还有未保存的编辑，请先保存或另存为副本。",
     "copySuffix": "（副本）",
-    "legacyDraftWarning": "原始名单和映射未保存在旧任务中；已保留每条渲染后的内容，请逐条编辑和审核。"
+    "legacyDraftWarning": "原始名单和映射未保存在旧任务中；已保留每条渲染后的内容，请逐条编辑和审核。",
+    "recipientRepairHelp": "可修复格式并去重；无法确认邮箱是否停用，无法确定的地址会保留为待处理。",
+    "repairRecipients": "一键修复邮箱",
+    "undoRecipientRepair": "撤销邮箱修复",
+    "excludeSelectedRows": "排除所选行",
+    "originalAddress": "原邮箱地址",
+    "replacementAddress": "替换为邮箱地址",
+    "replaceAddresses": "批量替换邮箱",
+    "selectRows": "选择",
+    "selectRepairRow": "选择第 {row} 行",
+    "recipientRepairPreview": "邮箱修复预览",
+    "recipientRepairWarning": "重复主收件人只保留首次出现的目标；后续整行均为重复目标时移除该行。应用后可撤销，其他收件人或名单修改会使撤销失效。",
+    "repairSummary": "将修改 {changed} 处，去除 {duplicates} 个重复地址，移除 {removed} 行；仍有 {unresolved} 项待处理。",
+    "repairComplete": "已修改 {changed} 处、移除 {removed} 行；仍有 {unresolved} 项待处理。请重新核对并审核整批内容。",
+    "repairUndone": "邮箱修复已撤销，收件人和移除的行已恢复。",
+    "complexRecipientsNeedManualEdit": "以下复杂字段需手动检查：",
+    "rowRemoved": "已移除",
+    "showingFirstRepairChanges": "仅展示前 20 项变更；应用后可查看完整名单。",
+    "nothingToRepair": "没有可自动修改的内容；待处理地址需手动修改或提供替换地址。",
+    "applyRecipientRepair": "应用修复"
   },
   "dialogContent": {
     "close": "关闭"

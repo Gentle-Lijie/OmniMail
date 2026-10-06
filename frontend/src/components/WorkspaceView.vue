@@ -21,6 +21,11 @@ import {
   LoaderCircle,
   Trash2,
 } from "lucide-vue-next";
+import AppCheckbox from "./ui/AppCheckbox.vue";
+import type {
+  RepairReport,
+  RepairOptions,
+} from "../../../server/recipientRepair";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import { Input } from "./ui/input";
@@ -465,6 +470,10 @@ watch(
   },
 );
 watch(activeId, (current, previous) => {
+  selectedRows.value = [];
+  replacementFrom.value = "";
+  replacementTo.value = "";
+  repairPreview.value = undefined;
   try {
     localStorage.setItem("omnimail-active-draft", current);
   } catch {}
@@ -485,6 +494,94 @@ watch(activeId, (current, previous) => {
   bccOpen.value = !!draft.value.payload.bcc;
   optionalAttendeesOpen.value = !!draft.value.payload.optionalAttendees;
 });
+const selectedRows = ref<number[]>([]);
+const replacementFrom = ref(""),
+  replacementTo = ref("");
+const repairPreview = ref<{
+  id: string;
+  revision: number;
+  options: RepairOptions;
+  report: RepairReport;
+}>();
+const repairConfirmOpen = computed({
+  get: () => !!repairPreview.value,
+  set: (open: boolean) => {
+    if (!open && !busy.value) repairPreview.value = undefined;
+  },
+});
+const canUndoRepair = computed(
+  () =>
+    draft.value.loaded &&
+    !!draft.value.undoRevision &&
+    draft.value.undoRevision === draft.value.serverRevision &&
+    !sync.dirty(draft.value),
+);
+function adoptServerDraft(target: Draft, value: ServerDraft) {
+  const merge = target.mergeOpen,
+    sample = target.sample;
+  Object.assign(target, restored(value), {
+    mergeOpen: merge,
+    sample: Math.min(sample, Math.max(0, value.rows.length - 1)),
+    undoRevision: value.undoRevision,
+  });
+  selectedRows.value = [];
+}
+async function previewRepair(options: RepairOptions = {}) {
+  await run("repair", async () => {
+    const target = draft.value;
+    await sync.flush(target);
+    const result = await api<{ report: RepairReport }>(
+      "/drafts/" + idPath(target.id) + "/repair",
+      "POST",
+      { expectedRevision: target.serverRevision, preview: true, ...options },
+    );
+    repairPreview.value = {
+      id: target.id,
+      revision: target.serverRevision,
+      options,
+      report: result.report,
+    };
+  });
+}
+async function applyRepair() {
+  if (!repairPreview.value) return;
+  const preview = repairPreview.value;
+  await run("repair", async () => {
+    const target = drafts.value.find((item) => item.id === preview.id)!;
+    const result = await api<{ draft: ServerDraft; report: RepairReport }>(
+      "/drafts/" + idPath(preview.id) + "/repair",
+      "POST",
+      { expectedRevision: preview.revision, ...preview.options },
+    );
+    adoptServerDraft(target, result.draft);
+    repairPreview.value = undefined;
+    replacementFrom.value = "";
+    replacementTo.value = "";
+    success.value = message("workspaceView.repairComplete", {
+      changed: result.report.changedCells,
+      removed: result.report.removedRows,
+      unresolved: result.report.unresolvedCount,
+    });
+  });
+}
+async function undoRepair() {
+  await run("repair", async () => {
+    const target = draft.value;
+    await sync.flush(target);
+    const value = await api<ServerDraft>(
+      "/drafts/" + idPath(target.id) + "/undo-repair",
+      "POST",
+      { expectedRevision: target.serverRevision },
+    );
+    adoptServerDraft(target, value);
+    success.value = copy.value.repairUndone;
+  });
+}
+function selectRepairRow(index: number, checked: boolean) {
+  selectedRows.value = checked
+    ? [...new Set([...selectedRows.value, index])]
+    : selectedRows.value.filter((item) => item !== index);
+}
 function draftContent(target: Draft): DraftContent {
   const legacyItems = target.legacyItems.map((payload, index) => ({
     ...(index === target.legacyIndex ? target.payload : payload),
@@ -825,6 +922,7 @@ async function importFile(event: Event) {
     if (!target.rows.length)
       target.manualTo = target.payload[recipientKey] || "";
     target.rows = data.rows;
+    selectedRows.value = [];
     fieldTarget.value = "html";
     target.columns = data.columns;
     target.fileName = file.name;
@@ -858,6 +956,7 @@ function clearData() {
   if (busy.value) return;
   const target = draft.value;
   target.rows = [];
+  selectedRows.value = [];
   target.columns = [];
   target.fileName = "";
   target.recipientColumn = "";
@@ -998,6 +1097,15 @@ async function ask(instruction: string) {
                 openDraftId = event.draftId;
               else if (event.type === "workspace" && event.workspace) {
                 applyWorkspace(event.workspace);
+                if (event.batch) {
+                  target.rows = event.batch.rows;
+                  target.columns = event.batch.columns;
+                  target.fileName = event.batch.fileName;
+                  target.manualTo = event.batch.manualTo;
+                  target.undoRevision = event.batch.undoRevision;
+                  target.sample = 0;
+                  selectedRows.value = [];
+                }
                 reviewTaskId = undefined;
               } else if (event.type === "refresh") refresh = true;
               else if (event.type === "review" && event.taskId)
@@ -1808,6 +1916,69 @@ const deleteDraftDescriptionLabel = (name: string) =>
             />
           </div>
           <div class="merge-body">
+            <div
+              v-if="draft.kind === 'email'"
+              class="recipient-repair-controls"
+            >
+              <p class="muted text-xs">{{ copy.recipientRepairHelp }}</p>
+              <div class="row wrap">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  :disabled="
+                    busy || (!!draft.rows.length && !draft.recipientColumn)
+                  "
+                  @click="previewRepair()"
+                  ><ShieldCheck />{{ copy.repairRecipients }}</Button
+                >
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  :disabled="busy || !canUndoRepair"
+                  @click="undoRepair"
+                  >{{ copy.undoRecipientRepair }}</Button
+                >
+                <Button
+                  v-if="selectedRows.length"
+                  variant="outline"
+                  size="sm"
+                  :disabled="busy"
+                  @click="previewRepair({ excludeRows: selectedRows })"
+                  >{{ copy.excludeSelectedRows }} ·
+                  {{ selectedRows.length }}</Button
+                >
+              </div>
+              <div class="recipient-replacement">
+                <Input
+                  v-model="replacementFrom"
+                  :disabled="busy"
+                  :aria-label="copy.originalAddress"
+                  :placeholder="copy.originalAddress"
+                />
+                <Input
+                  v-model="replacementTo"
+                  :disabled="busy"
+                  :aria-label="copy.replacementAddress"
+                  :placeholder="copy.replacementAddress"
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  :disabled="
+                    busy ||
+                    !replacementFrom.trim() ||
+                    !replacementTo.trim() ||
+                    (!!draft.rows.length && !draft.recipientColumn)
+                  "
+                  @click="
+                    previewRepair({
+                      replacements: { [replacementFrom]: replacementTo },
+                    })
+                  "
+                  >{{ copy.replaceAddresses }}</Button
+                >
+              </div>
+            </div>
             <p v-if="!draft.rows.length" class="muted text-sm">
               {{ copy.importHelp }}
             </p>
@@ -1896,6 +2067,13 @@ const deleteDraftDescriptionLabel = (name: string) =>
                   </caption>
                   <thead>
                     <tr>
+                      <th
+                        v-if="draft.kind === 'email'"
+                        class="repair-row-select"
+                        scope="col"
+                      >
+                        {{ copy.selectRows }}
+                      </th>
                       <th scope="col">{{ copy.row2 }}</th>
                       <th
                         v-for="column in draft.columns"
@@ -1916,6 +2094,23 @@ const deleteDraftDescriptionLabel = (name: string) =>
                         ),
                       }"
                     >
+                      <td
+                        v-if="draft.kind === 'email'"
+                        class="repair-row-select"
+                      >
+                        <AppCheckbox
+                          :model-value="selectedRows.includes(entry.index)"
+                          :disabled="busy"
+                          :aria-label="
+                            message('workspaceView.selectRepairRow', {
+                              row: entry.index + 1,
+                            })
+                          "
+                          @update:model-value="
+                            selectRepairRow(entry.index, $event)
+                          "
+                        />
+                      </td>
                       <th scope="row">{{ entry.index + 1 }}</th>
                       <td v-for="column in draft.columns" :key="column">
                         <Input
@@ -1985,6 +2180,92 @@ const deleteDraftDescriptionLabel = (name: string) =>
             }}</Button>
           </div>
         </div>
+      </DialogContent>
+    </Dialog>
+    <Dialog v-model:open="repairConfirmOpen">
+      <DialogContent
+        class="repair-confirm-dialog"
+        @interact-outside.prevent
+        @escape-key-down="busy && $event.preventDefault()"
+      >
+        <DialogHeader
+          ><DialogTitle>{{ copy.recipientRepairPreview }}</DialogTitle
+          ><DialogDescription>{{
+            copy.recipientRepairWarning
+          }}</DialogDescription></DialogHeader
+        >
+        <template v-if="repairPreview">
+          <p>
+            {{
+              message("workspaceView.repairSummary", {
+                changed: repairPreview.report.changedCells,
+                duplicates: repairPreview.report.duplicateAddresses,
+                removed: repairPreview.report.removedRows,
+                unresolved: repairPreview.report.unresolvedCount,
+              })
+            }}
+          </p>
+          <p
+            v-if="repairPreview.report.unsupportedFields.length"
+            class="muted text-xs"
+          >
+            {{ copy.complexRecipientsNeedManualEdit }}
+            {{ repairPreview.report.unsupportedFields.join(", ") }}
+          </p>
+          <div
+            v-if="repairPreview.report.changes.length"
+            class="repair-changes"
+          >
+            <div
+              v-for="(change, index) in repairPreview.report.changes.slice(
+                0,
+                20,
+              )"
+              :key="index"
+            >
+              <strong
+                >{{ change.row ? `${copy.row} ${change.row} · ` : ""
+                }}{{ change.field }}</strong
+              >
+              <span
+                >{{ change.before }} →
+                {{ change.after || copy.rowRemoved }}</span
+              >
+            </div>
+            <p
+              v-if="repairPreview.report.changes.length > 20"
+              class="muted text-xs"
+            >
+              {{ copy.showingFirstRepairChanges }}
+            </p>
+          </div>
+          <p
+            v-if="
+              !repairPreview.report.changedCells &&
+              !repairPreview.report.removedRows
+            "
+            class="muted"
+          >
+            {{ copy.nothingToRepair }}
+          </p>
+          <div class="actions">
+            <Button
+              variant="outline"
+              :disabled="busy"
+              @click="repairConfirmOpen = false"
+              >{{ copy.cancel }}</Button
+            >
+            <Button
+              :disabled="
+                busy ||
+                (!repairPreview.report.changedCells &&
+                  !repairPreview.report.removedRows)
+              "
+              @click="applyRepair"
+              >{{ copy.applyRecipientRepair }}</Button
+            >
+          </div>
+        </template>
       </DialogContent>
     </Dialog>
     <Dialog v-model:open="replaceOpen">

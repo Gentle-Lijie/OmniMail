@@ -2035,3 +2035,48 @@ kbd {
     display: none;
   }
 }
+
+.recipient-repair-controls {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+.recipient-repair-controls .row {
+  flex-wrap: wrap;
+}
+.recipient-replacement {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.recipient-replacement input {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+.repair-confirm-dialog {
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+}
+.repair-changes {
+  display: grid;
+  gap: 8px;
+  max-height: 280px;
+  overflow: auto;
+}
+.repair-changes > div {
+  display: grid;
+  gap: 2px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.data-table .repair-row-select {
+  width: 36px;
+  min-width: 36px;
+  padding: 8px;
+}

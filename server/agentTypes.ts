@@ -41,4 +41,11 @@ export interface AgentProgress {
   workspace?: AgentWorkspace;
   taskId?: string;
   draftId?: string;
+  batch?: {
+    rows: Record<string, string | number | boolean | null>[];
+    columns: string[];
+    fileName: string;
+    manualTo: string;
+    undoRevision?: number;
+  };
 }
