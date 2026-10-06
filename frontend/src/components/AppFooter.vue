@@ -1,16 +1,19 @@
 <script setup lang="ts">
+import { useMessages } from "@/lib/i18n";
 import { Github } from "lucide-vue-next";
+
+const copy = useMessages("appFooter");
 </script>
 
 <template>
   <footer class="app-footer">
     <span>
-      Made with ❤️ by
+      {{ copy.attribution }}
       <a
         href="https://github.com/Gentle-Lijie"
         target="_blank"
         rel="noopener noreferrer"
-        >GentleLijie</a
+        >{{ copy.author }}</a
       >
     </span>
     <a
@@ -18,7 +21,7 @@ import { Github } from "lucide-vue-next";
       href="https://github.com/Gentle-Lijie/OmniMail"
       target="_blank"
       rel="noopener noreferrer"
-      ><Github :size="14" aria-hidden="true" />GitHub</a
+      ><Github :size="14" aria-hidden="true" />{{ copy.repository }}</a
     >
   </footer>
 </template>

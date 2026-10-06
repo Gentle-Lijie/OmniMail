@@ -43,5 +43,10 @@
   "allowScripts": {
     "better-sqlite3@12.11.1": true,
     "esbuild@0.28.2": true
+  },
+  "overrides": {
+    "mammoth": {
+      "argparse": "2.0.1"
+    }
   }
 }

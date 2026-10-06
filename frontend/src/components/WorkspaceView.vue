@@ -1240,6 +1240,18 @@ onUnmounted(() => {
   emit("busy", false);
 });
 
+const selectRepairRowLabel = (row: number) =>
+  message("workspaceView.selectRepairRow", { row });
+const repairSummaryLabel = computed(() =>
+  repairPreview.value
+    ? message("workspaceView.repairSummary", {
+        changed: repairPreview.value.report.changedCells,
+        duplicates: repairPreview.value.report.duplicateAddresses,
+        removed: repairPreview.value.report.removedRows,
+        unresolved: repairPreview.value.report.unresolvedCount,
+      })
+    : "",
+);
 const deleteDraftDescriptionLabel = (name: string) =>
   message("workspaceView.deleteDraftDescription", { name });
 </script>
@@ -2101,11 +2113,7 @@ const deleteDraftDescriptionLabel = (name: string) =>
                         <AppCheckbox
                           :model-value="selectedRows.includes(entry.index)"
                           :disabled="busy"
-                          :aria-label="
-                            message('workspaceView.selectRepairRow', {
-                              row: entry.index + 1,
-                            })
-                          "
+                          :aria-label="selectRepairRowLabel(entry.index + 1)"
                           @update:model-value="
                             selectRepairRow(entry.index, $event)
                           "
@@ -2196,14 +2204,7 @@ const deleteDraftDescriptionLabel = (name: string) =>
         >
         <template v-if="repairPreview">
           <p>
-            {{
-              message("workspaceView.repairSummary", {
-                changed: repairPreview.report.changedCells,
-                duplicates: repairPreview.report.duplicateAddresses,
-                removed: repairPreview.report.removedRows,
-                unresolved: repairPreview.report.unresolvedCount,
-              })
-            }}
+            {{ repairSummaryLabel }}
           </p>
           <p
             v-if="repairPreview.report.unsupportedFields.length"

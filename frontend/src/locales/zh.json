@@ -639,5 +639,10 @@
     "deliveryHint": "接口接收不代表送达。结果不确定时，请核查 Flow 运行历史后再发起新的测试。",
     "close": "关闭",
     "send": "发送测试邮件"
+  },
+  "appFooter": {
+    "attribution": "用 ❤️ 制作 · 作者",
+    "author": "GentleLijie",
+    "repository": "GitHub"
   }
 }

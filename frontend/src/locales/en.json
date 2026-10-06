@@ -639,5 +639,10 @@
     "deliveryHint": "Acceptance does not prove delivery. For an uncertain result, inspect Flow history before starting another test.",
     "close": "Close",
     "send": "Send test email"
+  },
+  "appFooter": {
+    "attribution": "Made with ❤️ by",
+    "author": "GentleLijie",
+    "repository": "GitHub"
   }
 }
