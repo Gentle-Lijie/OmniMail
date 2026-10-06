@@ -35,7 +35,13 @@ export async function buildApp(options: AppOptions) {
   const { db } = store;
   const tasks = createTasks(store, options.fetcher);
   const ai = createAI(store, options.fetcher);
-  const app = Fastify({ logger: false, bodyLimit: 6 * 1024 * 1024 });
+  const app = Fastify({
+    logger:
+      process.env.LOG_LEVEL === "off"
+        ? false
+        : { level: process.env.LOG_LEVEL ?? "info" },
+    bodyLimit: 6 * 1024 * 1024,
+  });
   await app.register(cookie);
   await app.register(multipart, {
     limits: { fileSize: 5 * 1024 * 1024, files: 1, fields: 5 },

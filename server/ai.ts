@@ -325,12 +325,35 @@ export function createAI(store: Store, fetcher: typeof fetch = fetch) {
     signal = AbortSignal.timeout(45000),
     onProgress?: AgentOptions["onProgress"],
   ): Promise<any> => {
+    // Streaming requests use an inactivity watchdog instead of a fixed
+    // wall-clock cap: reasoning models can stream thoughts for well over
+    // 45s, so only abort when no output has arrived for 45s.
+    const controller = new AbortController();
+    const follow = () => controller.abort(signal.reason);
+    if (signal.aborted) follow();
+    else signal.addEventListener("abort", follow, { once: true });
+    let idle: ReturnType<typeof setTimeout> | undefined;
+    let idleAbort = false;
+    const arm = () => {
+      clearTimeout(idle);
+      idle = setTimeout(() => {
+        idleAbort = true;
+        controller.abort(new Error("stream idle"));
+      }, 45000);
+    };
+    const progress = onProgress
+      ? (event: AgentProgress) => {
+          arm();
+          onProgress(event);
+        }
+      : undefined;
+    if (onProgress) arm();
     try {
       const response = await fetcher(url, {
         method: "POST",
         headers: requestHeaders(provider),
         body: JSON.stringify(body),
-        signal,
+        signal: controller.signal,
         redirect: "error",
       });
       if (
@@ -342,10 +365,10 @@ export function createAI(store: Store, fetcher: typeof fetch = fetch) {
           return await readProviderStream(
             response,
             provider.protocol,
-            onProgress,
+            progress!,
           );
         } catch (error) {
-          if (signal.aborted) throw error;
+          if (controller.signal.aborted) throw error;
           throw new ProviderError(
             "invalid_response",
             serverMessage(
@@ -396,14 +419,18 @@ export function createAI(store: Store, fetcher: typeof fetch = fetch) {
       return data;
     } catch (error) {
       if (error instanceof ProviderError) throw error;
+      const timedOut = idleAbort || signal.aborted;
       throw new ProviderError(
-        signal.aborted ? "provider_timeout" : "provider_connection",
-        signal.aborted
+        timedOut ? "provider_timeout" : "provider_connection",
+        timedOut
           ? serverMessage("ai.providerRequestTimedOut")
           : serverMessage(
               "ai.cannotConnectToProviderCheckEndpointAndCustomHeaders",
             ),
       );
+    } finally {
+      clearTimeout(idle);
+      signal.removeEventListener("abort", follow);
     }
   };
   const discover = async (body: unknown) => {
@@ -674,13 +701,7 @@ export function createAI(store: Store, fetcher: typeof fetch = fetch) {
         }
       : undefined;
     const send = (body: unknown) =>
-      request(
-        provider,
-        `${provider.baseUrl}/${route}`,
-        body,
-        AbortSignal.any([signal, AbortSignal.timeout(45000)]),
-        progress,
-      );
+      request(provider, `${provider.baseUrl}/${route}`, body, signal, progress);
     let data: any;
     try {
       data = tools
