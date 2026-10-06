@@ -27,10 +27,18 @@ export interface AgentToolCall {
   summary?: string;
 }
 export interface AgentProgress {
-  type: "progress" | "thinking" | "tool" | "workspace" | "refresh" | "review";
+  type:
+    | "progress"
+    | "thinking"
+    | "tool"
+    | "workspace"
+    | "refresh"
+    | "review"
+    | "open-draft";
   stage?: "context" | "model" | "drafting" | "validating";
   text?: string;
   tool?: AgentToolCall;
   workspace?: AgentWorkspace;
   taskId?: string;
+  draftId?: string;
 }

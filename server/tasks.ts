@@ -146,7 +146,13 @@ export function createTasks(store: Store, fetcher: typeof fetch = fetch) {
         .prepare("SELECT value FROM tasks ORDER BY createdAt DESC LIMIT 500")
         .all() as any[]
     ).map((r) => JSON.parse(r.value));
-  const create = (body: any, source = "web", rendered = false) => {
+  const create = (
+    body: any,
+    source = "web",
+    rendered = false,
+    binding?: { id: string; revision: number },
+    snapshots?: Record<string, string>[],
+  ) => {
     const schema = z.object({
       kind: z.enum(["email", "event"]),
       payload: z.record(z.any()),
@@ -161,12 +167,16 @@ export function createTasks(store: Store, fetcher: typeof fetch = fetch) {
       conversation: z.array(z.any()).max(100).optional(),
     });
     const input = schema.parse(body);
-    const rows = input.rows ?? [{}];
+    const rows = snapshots ?? input.rows ?? [{}];
     let renderedBytes = 0;
     const items = rows.map((row) => {
       const payload = validatePayload(
         input.kind,
-        rendered ? input.payload : renderPayload(input.payload, row),
+        snapshots
+          ? row
+          : rendered
+            ? input.payload
+            : renderPayload(input.payload, row),
       );
       renderedBytes += Buffer.byteLength(JSON.stringify(payload));
       if (renderedBytes > 10 * 1024 * 1024)
@@ -205,6 +215,8 @@ export function createTasks(store: Store, fetcher: typeof fetch = fetch) {
       failed: 0,
       conversation: input.conversation ?? [],
       template,
+      sourceDraftId: binding?.id,
+      sourceDraftRevision: binding?.revision,
     };
     save(task);
     store.audit(`task.created:${task.id}`, source);
@@ -340,6 +352,16 @@ export function createTasks(store: Store, fetcher: typeof fetch = fetch) {
     const task = get(taskId);
     if (task.status !== "draft")
       throw new Error(serverMessage("tasks.onlyDraftTasksMayBeConfirmed"));
+    if (task.sourceDraftId) {
+      const row = db
+        .prepare("SELECT value FROM drafts WHERE id=?")
+        .get(task.sourceDraftId) as { value: string } | undefined;
+      if (!row || JSON.parse(row.value).revision !== task.sourceDraftRevision) {
+        const error = new Error(serverMessage("drafts.stale_review"));
+        Object.assign(error, { statusCode: 409, code: "stale_review" });
+        throw error;
+      }
+    }
     task.status = "queued";
     save(task);
     store.audit(`task.confirmed:${taskId}`, task.source);
@@ -368,6 +390,23 @@ export function createTasks(store: Store, fetcher: typeof fetch = fetch) {
         source,
         true,
       ),
+    createDraftSnapshot: (
+      kind: "email" | "event",
+      payloads: Record<string, string>[],
+      source: string,
+      binding: { id: string; revision: number },
+      metadata: { templateId?: string; conversation?: unknown[] } = {},
+    ) => {
+      if (!payloads.length || payloads.length > 1000)
+        throw new Error("Invalid draft batch size.");
+      return create(
+        { kind, payload: payloads[0], ...metadata },
+        source,
+        true,
+        binding,
+        payloads,
+      );
+    },
     confirm,
     cancel,
     start,

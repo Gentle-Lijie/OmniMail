@@ -1,5 +1,7 @@
+import { agentSkills, agentSkillNames } from "./agentSkills.js";
 import { z } from "zod";
 import { createTemplates, templateSchema } from "./templates.js";
+import { createDrafts, type ServerDraft } from "./drafts.js";
 import { createTasks } from "./tasks.js";
 import { hash, id, type Store } from "./store.js";
 import { serverMessage } from "./i18n.js";
@@ -88,6 +90,7 @@ const paging = {
 const templateRef = { id: identifier, expectedVersion: version };
 export interface ToolContext {
   workspace: AgentWorkspace;
+  serverDraft?: ServerDraft;
   rows: BatchRow[];
   columns: string[];
   attachments: AgentAttachment[];
@@ -106,6 +109,8 @@ interface ToolDefinition {
 }
 export function createAgentTools(store: Store, context: ToolContext) {
   const templates = createTemplates(store);
+  const drafts = createDrafts(store);
+  let persisted = context.serverDraft;
   // Tools deliberately have no worker and no confirm/send entry point.
   const tasks = createTasks(store);
   let workspace: AgentWorkspace = structuredClone(context.workspace);
@@ -119,8 +124,31 @@ export function createAgentTools(store: Store, context: ToolContext) {
     if (revision !== workspace.revision)
       throw Error("Draft changed. Read its latest revision before editing.");
   };
+  const persist = (next = workspace) => {
+    const content = {
+      ...(persisted
+        ? drafts.content(persisted)
+        : {
+            title: next.payload.subject || "",
+            columns: context.columns,
+            rows: context.rows,
+            conversation: context.conversation,
+            attachments: context.attachments,
+          }),
+      kind: next.kind,
+      payload: next.payload,
+      templateId: next.templateId,
+      mapping: next.mapping,
+      recipientColumn: next.recipientColumn,
+    };
+    persisted = persisted
+      ? drafts.update(persisted.id, persisted.revision, content, "agent")
+      : drafts.create(content, next.draftId, "agent");
+    workspace = { ...next, revision: persisted.revision };
+    return persisted;
+  };
   const change = (patch: Partial<AgentWorkspace>) => {
-    workspace = { ...workspace, ...patch, revision: workspace.revision + 1 };
+    persist({ ...workspace, ...patch });
     changed = true;
     saved = undefined;
     reviewTaskId = undefined;
@@ -150,41 +178,18 @@ export function createAgentTools(store: Store, context: ToolContext) {
         `Draft validation failed: ${JSON.stringify(validation.issues.slice(0, 5))}`,
       );
   };
-  const renderedRows = () =>
-    context.rows.length
-      ? context.rows.map((row) =>
-          Object.assign(
-            {},
-            row,
-            Object.fromEntries(
-              Object.entries(workspace.mapping).map(([field, column]) => [
-                field,
-                row[column],
-              ]),
-            ),
-          ),
-        )
-      : undefined;
   const fingerprint = () => hash(JSON.stringify([workspace, context.rows]));
   const save = () => {
-    assertValid();
     const current = fingerprint();
     if (
       saved?.fingerprint === current &&
       tasks.get(saved.taskId).status === "draft"
     )
       return tasks.get(saved.taskId);
-    const task = tasks.create(
-      {
-        kind: workspace.kind,
-        payload: workspace.payload,
-        rows: renderedRows(),
-        templateId: workspace.templateId,
-        conversation: context.conversation,
-      },
-      "agent",
-    );
-    saved = { fingerprint: current, taskId: task.id };
+    assertValid();
+    const draft = persist();
+    const task = drafts.review(draft.id, draft.revision, "agent");
+    saved = { fingerprint: fingerprint(), taskId: task.id };
     emit({ type: "refresh" });
     return task;
   };
@@ -215,6 +220,12 @@ export function createAgentTools(store: Store, context: ToolContext) {
     return { ...rest, htmlLength: html.length };
   };
 
+  add(
+    "get_skill",
+    "Read the applicable OmniMail workflow skill before managing server drafts.",
+    z.object({ name: z.enum(agentSkillNames) }).strict(),
+    ({ name }) => agentSkills.find((skill) => skill.name === name),
+  );
   add(
     "list_templates",
     "Search templates by name/description and kind. Returns summaries and versions, not full HTML.",
@@ -369,16 +380,139 @@ export function createAgentTools(store: Store, context: ToolContext) {
   );
   add(
     "save_draft",
-    "Validate and save the current draft as a server draft task. Never queues or sends it.",
+    "Persist the editable server draft even when incomplete. Never creates a task, queues or sends it.",
     z.object({}).strict(),
     () => {
-      const task = save();
+      const draft = persist();
+      emit({ type: "workspace", workspace: state() });
+      emit({ type: "refresh" });
       return {
-        id: task.id,
-        status: task.status,
-        total: task.total,
-        summary: task.summary,
+        id: draft.id,
+        revision: draft.revision,
+        status: "draft",
+        total: draft.rows.length || draft.legacyItems.length || 1,
+        summary: draft.payload.subject,
       };
+    },
+    true,
+  );
+  add(
+    "list_server_drafts",
+    "Find editable server drafts by title or kind. Returns summaries without full batch rows.",
+    z
+      .object({
+        query: z.string().max(200).default(""),
+        kind: z.enum(["email", "event"]).optional(),
+        ...paging,
+      })
+      .strict(),
+    ({ query, kind, offset, limit }) => {
+      const matches: ReturnType<typeof drafts.list>["drafts"] = [];
+      let cursor = 0;
+      while (true) {
+        const page = drafts.list(cursor, 100);
+        matches.push(
+          ...page.drafts.filter(
+            (item) =>
+              (!kind || item.kind === kind) &&
+              item.title.toLowerCase().includes(query.toLowerCase()),
+          ),
+        );
+        if (!page.hasMore) break;
+        cursor += page.drafts.length;
+      }
+      return {
+        drafts: matches.slice(offset, offset + limit),
+        total: matches.length,
+      };
+    },
+  );
+  add(
+    "get_server_draft",
+    "Read editable fields and version of one server draft. Returns batch metadata only, not all rows.",
+    z.object({ id: identifier }).strict(),
+    ({ id }) => {
+      const draft = drafts.get(id);
+      return {
+        id: draft.id,
+        kind: draft.kind,
+        title: draft.title,
+        payload: draft.payload,
+        revision: draft.revision,
+        mapping: draft.mapping,
+        recipientColumn: draft.recipientColumn,
+        columns: draft.columns,
+        rowCount: draft.rows.length,
+        legacyNotice: draft.legacyNotice,
+      };
+    },
+  );
+  add(
+    "open_server_draft",
+    "Open an existing server draft in the user's editor. Does not overwrite the current draft or execute anything.",
+    z.object({ id: identifier }).strict(),
+    ({ id }) => {
+      const draft = drafts.get(id);
+      emit({ type: "open-draft", draftId: draft.id });
+      return {
+        id: draft.id,
+        title: draft.title,
+        revision: draft.revision,
+        opened: true,
+      };
+    },
+  );
+  add(
+    "update_server_draft",
+    "Patch editable fields of an existing server draft with its expectedRevision. Omitted fields remain unchanged. Never queues or sends.",
+    z
+      .object({
+        id: identifier,
+        expectedRevision: z.number().int().min(1),
+        patch: z
+          .object({
+            title: z.string().max(200).optional(),
+            payload: z.record(safeKey, z.string().max(500000)).optional(),
+            mapping: mappingSchema.optional(),
+            recipientColumn: z.string().max(200).optional(),
+          })
+          .strict(),
+      })
+      .strict(),
+    ({ id, expectedRevision, patch }) => {
+      const current = drafts.get(id);
+      if (id === workspace.draftId && current.revision !== workspace.revision)
+        throw Error(
+          "Active draft changed in another window. Reload it before editing.",
+        );
+      if (current.revision !== expectedRevision)
+        throw Error("Server draft changed. Read its latest revision.");
+      const next = drafts.update(
+        id,
+        expectedRevision,
+        {
+          ...drafts.content(current),
+          ...patch,
+          payload: { ...current.payload, ...patch.payload },
+        },
+        "agent",
+      );
+      if (id === workspace.draftId) {
+        persisted = next;
+        workspace = {
+          ...workspace,
+          payload: next.payload,
+          mapping: next.mapping,
+          recipientColumn: next.recipientColumn,
+          revision: next.revision,
+        };
+        changed = true;
+        saved = undefined;
+        reviewTaskId = undefined;
+        emit({ type: "workspace", workspace: state() });
+      }
+      emit({ type: "refresh" });
+      return { id, revision: next.revision };
     },
     true,
   );
@@ -707,7 +841,13 @@ export function createAgentTools(store: Store, context: ToolContext) {
         const cached = JSON.parse(previous.value);
         // Replay completion events so a disconnected client can reconcile safely.
         if (cached.workspace) {
+          const latest = drafts.get(cached.workspace.draftId);
+          if (latest.revision !== cached.workspace.revision)
+            throw Error(
+              "Draft changed after the cached operation. Reload before editing.",
+            );
           workspace = cached.workspace;
+          persisted = latest;
           changed = true;
           emit({ type: "workspace", workspace: state() });
         }

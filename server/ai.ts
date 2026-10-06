@@ -11,6 +11,8 @@ import { readProviderStream } from "./agentStream.js";
 import { type AgentProgress, draftFields } from "./agentTypes.js";
 import { createAgentTools, type AgentTools } from "./agentTools.js";
 import { runAgentTools } from "./agentRuntime.js";
+import { agentSkills } from "./agentSkills.js";
+import { createDrafts, DraftError } from "./drafts.js";
 import { rowSchema, mappingSchema } from "./draftValidation.js";
 
 interface AgentOptions {
@@ -951,8 +953,28 @@ export function createAI(store: Store, fetcher: typeof fetch = fetch) {
         mapping: mappingSchema.default({}),
         recipientColumn: z.string().max(200).default(""),
         revision: z.number().int().min(0).default(0),
+        serverRevision: z.number().int().min(1).optional(),
       })
       .parse(body);
+    let serverDraft;
+    if (input.serverRevision !== undefined) {
+      if (!input.draftId) throw new DraftError("draft_not_found", 404);
+      serverDraft = createDrafts(store).get(input.draftId);
+      if (serverDraft.revision !== input.serverRevision)
+        throw new DraftError("draft_conflict", 409);
+      if (serverDraft.legacyItems.length)
+        throw new DraftError("draft_invalid", 400);
+      Object.assign(input, {
+        kind: serverDraft.kind,
+        payload: serverDraft.payload,
+        rows: serverDraft.rows,
+        columns: serverDraft.columns,
+        mapping: serverDraft.mapping,
+        recipientColumn: serverDraft.recipientColumn,
+        templateId: serverDraft.templateId,
+        revision: serverDraft.revision,
+      });
+    }
     const attachments = validateAttachments(input.attachments);
     options.onProgress?.({ type: "progress", stage: "context" });
     const provider = saved(defaultProviderId());
@@ -985,6 +1007,7 @@ export function createAI(store: Store, fetcher: typeof fetch = fetch) {
       .prepare("DELETE FROM agent_operations WHERE createdAt<?")
       .run(Date.now() - 86400000);
     const toolkit = createAgentTools(store, {
+      serverDraft,
       workspace: {
         draftId: input.draftId ?? id(),
         kind: input.kind,
@@ -1013,7 +1036,7 @@ export function createAI(store: Store, fetcher: typeof fetch = fetch) {
     } = input;
     const text = await complete(
       provider,
-      `${serverMessage("agentTools.system")} ${serverMessage("ai.attachmentInstructions")} ${store.get("prompt", "")}`,
+      `${serverMessage("agentTools.system")} ${serverMessage("ai.attachmentInstructions")} ${store.get("prompt", "")} Available workflow skills (read get_skill when applicable): ${JSON.stringify(agentSkills.map(({ name, description }) => ({ name, description })))}`,
       JSON.stringify({
         request: {
           ...requestContext,

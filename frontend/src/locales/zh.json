@@ -121,7 +121,9 @@
     "mcpService": "MCP 服务",
     "apiKeys": "API 密钥",
     "newApiKey": "新 API 密钥",
-    "testEmail": "测试邮件"
+    "testEmail": "测试邮件",
+    "editDraft": "继续编辑",
+    "copyAsDraft": "复制为新草稿"
   },
   "agentDialog": {
     "uploadAtMost5Attachments": "最多上传 5 个附件。",
@@ -203,7 +205,12 @@
       "prepare_execution": "准备执行审核",
       "request_execution_confirmation": "打开人工确认",
       "read_attachment": "读取参考附件",
-      "search_attachment": "检索参考附件"
+      "search_attachment": "检索参考附件",
+      "list_server_drafts": "查找服务器草稿",
+      "get_server_draft": "读取服务器草稿",
+      "open_server_draft": "打开服务器草稿",
+      "update_server_draft": "更新服务器草稿",
+      "get_skill": "读取工作流 skill"
     },
     "toolOperations": "工具操作"
   },
@@ -398,7 +405,7 @@
     "emailColumnConfirmed": "已确认邮箱列「{column}」。可插入字段并检查整批个性化内容。",
     "fixIssuesBeforeSaving": "请修正 {count} 处问题后再保存。",
     "issuesFound": "发现 {count} 处问题，请检查正文和名单。",
-    "deleteDraftDescription": "将移除「{name}」及其未保存的编辑，删除后无法恢复。已保存的服务器草稿仍可在历史中查看。",
+    "deleteDraftDescription": "将删除服务器草稿「{name}」。已执行的任务历史不受影响，删除后无法恢复。",
     "importSuccess": "名单已导入。请先确认收件人列，再插入字段。",
     "invalidAiDraft": "AI 返回的建议格式无效，已完成的工具操作仍然保留。",
     "proposalApplied": "全部建议字段与映射已应用。请核对收件人、日程信息及内容后再执行。",
@@ -416,7 +423,23 @@
     "returnToEditor": "返回编辑器",
     "replaceListWarning": "替换成功后会覆盖当前名单及其编辑，并重置收件人列和字段映射。取消选择或导入失败会保留当前数据。",
     "chooseReplacementList": "选择替换名单",
-    "validateBatch": "校验整批"
+    "validateBatch": "校验整批",
+    "syncStates": {
+      "pending": "等待保存",
+      "saving": "保存中…",
+      "saved": "已保存到服务器",
+      "error": "保存失败",
+      "conflict": "版本冲突"
+    },
+    "loadingDrafts": "正在载入服务器草稿…",
+    "serverDraftsHint": "草稿自动保存到服务器，可在重新登录后继续编辑。",
+    "retrySave": "重试",
+    "saveLocalCopy": "将当前编辑另存为副本",
+    "reloadServerDraft": "载入服务器版本",
+    "reloadDraftWarning": "当前草稿的本地编辑将被服务器版本替换。建议先另存为副本。",
+    "localChangesNeedCopy": "当前草稿还有未保存的编辑，请先保存或另存为副本。",
+    "copySuffix": "（副本）",
+    "legacyDraftWarning": "原始名单和映射未保存在旧任务中；已保留每条渲染后的内容，请逐条编辑和审核。"
   },
   "dialogContent": {
     "close": "关闭"

@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "concurrently -k \"npm run dev:server\" \"npm --prefix frontend run dev\"",
     "dev:server": "tsx watch server/index.ts",
-    "build": "tsc -p server/tsconfig.json && npm --prefix frontend run build",
+    "build": "tsc -p server/tsconfig.json && node server/copySkills.mjs && npm --prefix frontend run build",
     "start": "node dist/server/index.js",
     "test": "LOG_LEVEL=off tsx --test server/*.test.ts frontend/tests/*.test.ts",
     "lint": "prettier --check .",

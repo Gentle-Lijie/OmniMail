@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useMessages, taskError } from "@/lib/i18n";
-import { ref, computed, onMounted, onUnmounted, watch } from "vue";
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from "vue";
 import {
   startAuthentication,
   startRegistration,
@@ -49,6 +49,7 @@ import {
   type AuthStatus,
   type Template,
   type Task,
+  type ServerDraft,
   type Kind,
   type Payload,
   type Key,
@@ -164,6 +165,7 @@ async function register() {
     await status();
   });
 }
+const workspaceView = ref<InstanceType<typeof WorkspaceView>>();
 const templates = ref<Template[]>([]);
 const tasks = ref<Task[]>([]);
 const keys = ref<Key[]>([]);
@@ -273,6 +275,7 @@ async function confirm() {
       review.value.status !== "draft"
     )
       return;
+    await workspaceView.value?.flushAll();
     await api("/tasks/" + idPath(review.value.id) + "/confirm", "POST", {});
     detail.value = await api<Task>("/tasks/" + idPath(review.value.id));
     reviewOpen.value = false;
@@ -287,6 +290,25 @@ async function openTask(x: Task) {
   await run(async () => {
     detail.value = await api<Task>("/tasks/" + idPath(x.id));
     detailOpen.value = true;
+  });
+}
+async function editTaskDraft(task: Task) {
+  await run(async () => {
+    const draftId =
+      task.status === "draft" && task.sourceDraftId
+        ? task.sourceDraftId
+        : (
+            await api<ServerDraft>(
+              "/tasks/" + idPath(task.id) + "/copy-draft",
+              "POST",
+              {},
+            )
+          ).id;
+    page.value = "dashboard";
+    detailOpen.value = false;
+    await nextTick();
+    await workspaceView.value?.openServerDraft(draftId);
+    await loadPage();
   });
 }
 async function cancelTask(x: Task) {
@@ -526,6 +548,7 @@ const placeholderHint = computed(
             :disabled="busy || workspaceBusy"
             @click="
               run(async () => {
+                await workspaceView?.flushAll();
                 await api('/auth/logout', 'POST', {});
                 auth = undefined;
                 await status();
@@ -539,6 +562,7 @@ const placeholderHint = computed(
       </header>
       <div class="content" :class="{ 'desk-content': page === 'dashboard' }">
         <WorkspaceView
+          ref="workspaceView"
           v-show="page === 'dashboard'"
           :templates="templates"
           :tasks="tasks"
@@ -835,6 +859,16 @@ const placeholderHint = computed(
           {{ x.role }}: {{ x.content }}
         </div>
         <div class="actions">
+          <Button
+            variant="outline"
+            :disabled="busy || workspaceBusy"
+            @click="editTaskDraft(detail)"
+            >{{
+              detail.status === "draft" && detail.sourceDraftId
+                ? copy.editDraft
+                : copy.copyAsDraft
+            }}</Button
+          >
           <Button
             variant="outline"
             :disabled="busy"

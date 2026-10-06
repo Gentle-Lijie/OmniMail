@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createStore } from "./store.js";
 import { createAgentTools, type ToolContext } from "./agentTools.js";
 import { createAI, ProviderError } from "./ai.js";
+import { createDrafts } from "./drafts.js";
 import { createTasks } from "./tasks.js";
 import { createTemplates } from "./templates.js";
 import { readProviderStream } from "./agentStream.js";
@@ -50,11 +51,11 @@ const template = {
   fields: ["name"],
 };
 
-test("registry exposes all 23 business tools with bounded provider schemas", () => {
+test("registry exposes all 28 business tools with bounded provider schemas", () => {
   const { store, tools } = fixture();
   try {
-    assert.equal(tools.definitions.length, 23);
-    assert.equal(new Set(tools.definitions.map((t) => t.name)).size, 23);
+    assert.equal(tools.definitions.length, 28);
+    assert.equal(new Set(tools.definitions.map((t) => t.name)).size, 28);
     for (const definition of tools.definitions) {
       assert.equal(definition.parameters.type, "object");
       assert.equal(definition.parameters.additionalProperties, false);
@@ -203,7 +204,8 @@ test("draft tools retain unrelated fields, require revision and compatible templ
     assert.equal(call(tools, "validate_draft").valid, true);
     const saved = call(tools, "save_draft");
     assert.equal(saved.status, "draft");
-    assert.equal(createTasks(store).get(saved.id).template.version, 1);
+    assert.equal(createDrafts(store).get(saved.id).templateId, t.id);
+    assert.equal(createTasks(store).list().length, 0);
     assert(events.some((e) => e.type === "workspace"));
     call(tools, "delete_template", { id: t.id, expectedVersion: 1 });
     assert.equal(tools.state().templateId, undefined);
@@ -337,7 +339,11 @@ test("batch tools confirm recipient columns, render safely and validate every ro
       () => call(tools, "get_batch_row", { rowIndex: 5 }),
       /out of range/,
     );
-    assert.throws(() => call(tools, "save_draft"), /validation failed/);
+    assert.equal(call(tools, "save_draft").status, "draft");
+    assert.throws(
+      () => call(tools, "request_execution_confirmation"),
+      /validation failed/,
+    );
   } finally {
     store.db.close();
   }
@@ -359,7 +365,8 @@ test("valid batches save mapped rows; event tools validate Beijing timestamps", 
   try {
     const saved = call(tools, "save_draft");
     assert.equal(
-      createTasks(store).get(saved.id).items[0].payload.html,
+      createTasks(store).get(call(tools, "request_execution_confirmation").id)
+        .items[0].payload.html,
       "<p>Zero</p>",
     );
     const eventTools = createAgentTools(store, {
@@ -427,10 +434,11 @@ test("task tools paginate all records, filter dates, cancel pending items and on
     assert.equal(preparation.valid, true);
     const saved = call(tools, "save_draft");
     const review = call(tools, "request_execution_confirmation");
-    assert.equal(review.id, saved.id);
+    assert.notEqual(review.id, saved.id);
+    assert.equal(createTasks(store).get(review.id).sourceDraftId, saved.id);
     assert.equal(review.queued, false);
-    assert.equal(createTasks(store).get(saved.id).status, "draft");
-    assert(events.some((e) => e.type === "review" && e.taskId === saved.id));
+    assert.equal(createTasks(store).get(review.id).status, "draft");
+    assert(events.some((e) => e.type === "review" && e.taskId === review.id));
     assert.equal(
       store.db
         .prepare(
@@ -709,7 +717,7 @@ test("all three providers perform read/edit/read loops with tool feedback and pr
     const events: AgentProgress[] = [];
     const ai = createAI(store, (async (_url, options) => {
       const body = JSON.parse(String(options?.body));
-      assert.equal(body.tools.length, 24);
+      assert.equal(body.tools.length, 29);
       assert(!JSON.stringify(body).includes("private-row-value"));
       round++;
       if (round === 1)

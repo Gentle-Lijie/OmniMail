@@ -90,6 +90,7 @@ export async function readAgentResponse<Result>(
         "workspace",
         "refresh",
         "review",
+        "open-draft",
       ].includes(event.type)
     )
       onProgress(event);

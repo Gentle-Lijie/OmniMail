@@ -36,6 +36,7 @@ export type TaskStatus =
   | "failed"
   | "uncertain"
   | "cancelled";
+export type { ServerDraft, DraftContent } from "../../../server/drafts";
 export interface Task {
   id: string;
   kind: Kind;
@@ -47,6 +48,8 @@ export interface Task {
   accepted: number;
   failed: number;
   templateId?: string;
+  sourceDraftId?: string;
+  sourceDraftRevision?: number;
   template?: Template;
   payload?: Payload;
   items?: {

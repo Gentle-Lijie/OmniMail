@@ -121,7 +121,9 @@
     "mcpService": "MCP service",
     "apiKeys": "API keys",
     "newApiKey": "New API key",
-    "testEmail": "Test email"
+    "testEmail": "Test email",
+    "editDraft": "Continue editing",
+    "copyAsDraft": "Copy as new draft"
   },
   "agentDialog": {
     "uploadAtMost5Attachments": "Upload at most 5 attachments.",
@@ -203,7 +205,12 @@
       "prepare_execution": "Prepare execution review",
       "request_execution_confirmation": "Open human confirmation",
       "read_attachment": "Read reference attachment",
-      "search_attachment": "Search reference attachments"
+      "search_attachment": "Search reference attachments",
+      "list_server_drafts": "Find server drafts",
+      "get_server_draft": "Read server draft",
+      "open_server_draft": "Open server draft",
+      "update_server_draft": "Update server draft",
+      "get_skill": "Read workflow skill"
     },
     "toolOperations": "Tool operations"
   },
@@ -398,7 +405,7 @@
     "emailColumnConfirmed": "Confirmed email column “{column}”. Insert fields and review the personalized batch.",
     "fixIssuesBeforeSaving": "Fix {count} issues before saving.",
     "issuesFound": "{count} issues found. Check content and data.",
-    "deleteDraftDescription": "Removes “{name}” and its unsaved edits. This cannot be undone. Saved server drafts remain available in History.",
+    "deleteDraftDescription": "Delete server draft “{name}”. Executed task history remains available. This cannot be undone.",
     "importSuccess": "Imported. Confirm the recipient column before inserting fields.",
     "invalidAiDraft": "AI returned an invalid suggestion. Completed tool operations are retained.",
     "proposalApplied": "All suggested fields and mappings applied. Check recipients, event details and content before execution.",
@@ -416,7 +423,23 @@
     "returnToEditor": "Return to editor",
     "replaceListWarning": "A successful import replaces the current list and its edits, and resets the recipient column and field mappings. Cancelling the file picker or a failed import keeps your current data.",
     "chooseReplacementList": "Choose replacement list",
-    "validateBatch": "Validate batch"
+    "validateBatch": "Validate batch",
+    "syncStates": {
+      "pending": "Waiting to save",
+      "saving": "Saving…",
+      "saved": "Saved to server",
+      "error": "Save failed",
+      "conflict": "Version conflict"
+    },
+    "loadingDrafts": "Loading server drafts…",
+    "serverDraftsHint": "Drafts save automatically to the server. Continue editing after signing in again.",
+    "retrySave": "Retry",
+    "saveLocalCopy": "Save local edits as a copy",
+    "reloadServerDraft": "Load server version",
+    "reloadDraftWarning": "The server version will replace this draft’s local edits. Save a copy first to retain them.",
+    "localChangesNeedCopy": "This draft has unsaved local edits. Save them or keep a copy first.",
+    "copySuffix": " (copy)",
+    "legacyDraftWarning": "The old task did not store original rows or mappings. All rendered items are retained for individual editing and review."
   },
   "dialogContent": {
     "close": "Close"

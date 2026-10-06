@@ -50,6 +50,8 @@ import {
   type Message,
   type Template,
   type Task,
+  type ServerDraft,
+  type DraftContent,
 } from "@/lib/api";
 import {
   applyDraftSuggestion,
@@ -58,12 +60,13 @@ import {
 } from "@/lib/agent";
 import {
   fieldsIn,
-  mappedRows,
   mergeIssues,
   renderFields,
   recommendedEmailColumn,
   type DataRow,
 } from "@/lib/mailMerge";
+
+import { createDraftSync, type SyncedDraft } from "@/lib/draftSync";
 
 const copy = useMessages("workspaceView");
 const tokenLabel = (field: string) => `{{${field}}}`;
@@ -100,7 +103,11 @@ interface Proposal {
   reviewTaskId?: string;
   hasSuggestion?: boolean;
 }
-interface Draft {
+interface Draft extends SyncedDraft {
+  loaded: boolean;
+  legacyItems: Payload[];
+  legacyIndex: number;
+  legacyNotice: boolean;
   id: string;
   revision: number;
   title: string;
@@ -128,6 +135,14 @@ function blank(kind: Kind): Draft {
   return {
     id: crypto.randomUUID(),
     revision: 0,
+    serverRevision: 0,
+    serverSnapshot: "",
+    syncState: "pending",
+    syncError: "",
+    loaded: true,
+    legacyItems: [],
+    legacyIndex: 0,
+    legacyNotice: false,
     title:
       kind === "email" ? copy.value.untitledEmail : copy.value.untitledEvent,
     kind,
@@ -168,8 +183,9 @@ watch(copy, () => {
   }
 });
 const activeId = ref(drafts.value[0]!.id);
-const draft = computed(() =>
-  drafts.value.find((item) => item.id === activeId.value)!,
+const draft = computed(
+  () =>
+    drafts.value.find((item) => item.id === activeId.value) || drafts.value[0]!,
 );
 const search = ref(""),
   activity = ref(""),
@@ -183,7 +199,11 @@ const agentOpen = ref(false),
   applyTemplateOpen = ref(false),
   clearOpen = ref(false),
   replaceOpen = ref(false);
-const busy = computed(() => !!activity.value || props.locked);
+const draftsReady = ref(false);
+const draftLoadError = ref("");
+const busy = computed(
+  () => !draftsReady.value || !!activity.value || props.locked,
+);
 const mergeOpen = computed({
   get: () => props.visible && draft.value.mergeOpen,
   set: (open: boolean) => {
@@ -413,7 +433,6 @@ const snapshot = () =>
     mapping: draft.value.mapping,
     templateId: draft.value.templateId,
   });
-const savedCurrent = computed(() => draft.value.savedSnapshot === snapshot());
 const selectedTemplate = ref("none");
 watch(
   () => props.tasks,
@@ -446,6 +465,9 @@ watch(
   },
 );
 watch(activeId, (current, previous) => {
+  try {
+    localStorage.setItem("omnimail-active-draft", current);
+  } catch {}
   const previousDraft = drafts.value.find((item) => item.id === previous);
   if (previousDraft) previousDraft.mergeOpen = false;
   clearOpen.value = false;
@@ -463,9 +485,239 @@ watch(activeId, (current, previous) => {
   bccOpen.value = !!draft.value.payload.bcc;
   optionalAttendeesOpen.value = !!draft.value.payload.optionalAttendees;
 });
+function draftContent(target: Draft): DraftContent {
+  const legacyItems = target.legacyItems.map((payload, index) => ({
+    ...(index === target.legacyIndex ? target.payload : payload),
+  }));
+  return {
+    title: target.title,
+    kind: target.kind,
+    payload: { ...target.payload },
+    templateId: target.templateId === "none" ? undefined : target.templateId,
+    rows: structuredClone(JSON.parse(JSON.stringify(target.rows))),
+    columns: [...target.columns],
+    mapping: { ...target.mapping },
+    recipientColumn: target.recipientColumn,
+    manualTo: target.manualTo,
+    fileName: target.fileName,
+    conversation: JSON.parse(JSON.stringify(target.conversation.slice(-100))),
+    attachments: JSON.parse(JSON.stringify(target.attachments)),
+    message: target.message,
+    legacyItems,
+    legacyIndex: target.legacyIndex,
+    legacyNotice: target.legacyNotice,
+  } as DraftContent;
+}
+const sync = createDraftSync<Draft, DraftContent>({
+  content: draftContent,
+  write: (id, revision, content) =>
+    api<ServerDraft>(
+      revision ? "/drafts/" + idPath(id) : "/drafts",
+      revision ? "PUT" : "POST",
+      revision ? { expectedRevision: revision, content } : { id, content },
+    ),
+});
+function restored(value: ServerDraft): Draft {
+  const target = {
+    ...blank(value.kind),
+    ...value,
+    payload: value.payload as Payload,
+    legacyItems: value.legacyItems as Payload[],
+    templateId: value.templateId || "none",
+    loaded: true,
+    serverRevision: value.revision,
+    revision: value.revision,
+    syncState: "saved" as const,
+  };
+  target.serverSnapshot = JSON.stringify(draftContent(target));
+  return target;
+}
+const saveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+function scheduleSave(target: Draft) {
+  if (
+    !draftsReady.value ||
+    !target.loaded ||
+    target.syncState === "conflict" ||
+    activity.value === "agent"
+  )
+    return;
+  clearTimeout(saveTimers.get(target.id));
+  if (!sync.dirty(target)) return;
+  if (target.syncState !== "saving") target.syncState = "pending";
+  saveTimers.set(
+    target.id,
+    setTimeout(() => {
+      saveTimers.delete(target.id);
+      void sync.flush(target).catch(() => {});
+    }, 600),
+  );
+}
+watch(
+  () =>
+    drafts.value.map((target) =>
+      target.loaded ? JSON.stringify(draftContent(target)) : "",
+    ),
+  () => drafts.value.forEach(scheduleSave),
+);
+watch(activity, (value) => {
+  if (!value) drafts.value.forEach(scheduleSave);
+});
+async function flushAll() {
+  if (!draftsReady.value)
+    throw Error(draftLoadError.value || copy.value.loadingDrafts);
+  for (const target of drafts.value.filter((item) => item.loaded))
+    await sync.flush(target);
+}
+async function loadDrafts() {
+  draftLoadError.value = "";
+  try {
+    const summaries: {
+      id: string;
+      title: string;
+      kind: Kind;
+      revision: number;
+      legacyNotice: boolean;
+    }[] = [];
+    let offset = 0;
+    while (true) {
+      const page = await api<{ drafts: typeof summaries; hasMore: boolean }>(
+        "/drafts?offset=" + offset + "&limit=100",
+      );
+      summaries.push(...page.drafts);
+      offset += page.drafts.length;
+      if (!page.hasMore) break;
+    }
+    const existing = new Map(
+      drafts.value
+        .filter((item) => item.serverRevision)
+        .map((item) => [item.id, item]),
+    );
+    const listed = summaries.map((summary) => {
+      const local = existing.get(summary.id);
+      if (local) return local;
+      return {
+        ...blank(summary.kind),
+        id: summary.id,
+        title: summary.title,
+        serverRevision: summary.revision,
+        legacyNotice: summary.legacyNotice,
+        loaded: false,
+        syncState: "saved" as const,
+      };
+    });
+    if (!listed.length) {
+      const created = blank("email");
+      drafts.value = [created];
+      activeId.value = created.id;
+      await sync.flush(created);
+    } else drafts.value = listed;
+    let remembered: string | null = null;
+    try {
+      remembered = localStorage.getItem("omnimail-active-draft");
+    } catch {}
+    const selected =
+      drafts.value.find((item) => item.id === activeId.value) ||
+      drafts.value.find((item) => item.id === remembered) ||
+      drafts.value[0]!;
+    if (!selected.loaded) {
+      const value = await api<ServerDraft>("/drafts/" + idPath(selected.id));
+      drafts.value.splice(drafts.value.indexOf(selected), 1, restored(value));
+    }
+    activeId.value = selected.id;
+    draftsReady.value = true;
+  } catch (cause) {
+    draftLoadError.value =
+      cause instanceof Error ? cause.message : String(cause);
+    if (!drafts.value.length) drafts.value = [blank("email")];
+    activeId.value = drafts.value[0]!.id;
+    if (cause instanceof ApiError && cause.status === 401) emit("expired");
+  }
+}
+async function openWorkingDraft(id: string) {
+  if (busy.value) return;
+  await run("load", async () => {
+    const target = drafts.value.find((item) => item.id === id);
+    if (!target) return;
+    if (!target.loaded)
+      drafts.value.splice(
+        drafts.value.indexOf(target),
+        1,
+        restored(await api<ServerDraft>("/drafts/" + idPath(id))),
+      );
+    activeId.value = id;
+    try {
+      localStorage.setItem("omnimail-active-draft", id);
+    } catch {}
+  });
+}
+async function openServerDraft(id: string) {
+  const value = restored(await api<ServerDraft>("/drafts/" + idPath(id)));
+  const local = drafts.value.find((item) => item.id === id);
+  if (local && local.loaded && sync.dirty(local))
+    throw Error(copy.value.localChangesNeedCopy);
+  if (local) drafts.value.splice(drafts.value.indexOf(local), 1, value);
+  else drafts.value.push(value);
+  activeId.value = id;
+  try {
+    localStorage.setItem("omnimail-active-draft", id);
+  } catch {}
+}
+async function reloadCurrentDraft() {
+  const target = draft.value;
+  await run("load", async () => {
+    const latest = restored(
+      await api<ServerDraft>("/drafts/" + idPath(target.id)),
+    );
+    clearTimeout(saveTimers.get(target.id));
+    drafts.value.splice(drafts.value.indexOf(target), 1, latest);
+    reloadDraftOpen.value = false;
+  });
+}
+async function copyLocalDraft() {
+  const target = draft.value;
+  await run("save", async () => {
+    const created = restored(
+      await api<ServerDraft>("/drafts", "POST", {
+        content: {
+          ...draftContent(target),
+          title: target.title + copy.value.copySuffix,
+        },
+      }),
+    );
+    drafts.value.push(created);
+    // The copy now preserves every local edit; reopen the original from its latest server version.
+    clearTimeout(saveTimers.get(target.id));
+    target.loaded = false;
+    target.syncState = "saved";
+    target.syncError = "";
+    activeId.value = created.id;
+  });
+}
+function selectLegacyItem(value: string) {
+  const target = draft.value;
+  if (busy.value || !target.legacyItems[Number(value)]) return;
+  target.legacyItems[target.legacyIndex] = { ...target.payload };
+  target.legacyIndex = Number(value);
+  target.payload = { ...target.legacyItems[target.legacyIndex]! };
+}
+const reloadDraftOpen = ref(false);
+function beforeUnload(event: BeforeUnloadEvent) {
+  if (
+    drafts.value.some(
+      (target) =>
+        target.loaded && (sync.dirty(target) || target.syncState === "saving"),
+    )
+  ) {
+    event.preventDefault();
+    event.returnValue = "";
+  }
+}
 onMounted(() => {
   document.addEventListener("keydown", shortcut);
+  window.addEventListener("beforeunload", beforeUnload);
+  void loadDrafts();
 });
+defineExpose({ flushAll, openServerDraft });
 async function run(
   action: string,
   operation: () => Promise<void>,
@@ -487,33 +739,49 @@ async function run(
     activity.value = "";
   }
 }
-function addDraft(kind: Kind = "email", startAgent = true) {
+async function addDraft(kind: Kind = "email", startAgent = true) {
   if (busy.value) return;
-  const created = blank(kind);
-  drafts.value.push(created);
-  activeId.value = created.id;
-  if (kind === "email" && startAgent) agentOpen.value = true;
+  await run("save", async () => {
+    const created = blank(kind);
+    await sync.flush(created);
+    drafts.value.push(created);
+    activeId.value = created.id;
+    if (kind === "email" && startAgent) agentOpen.value = true;
+  });
 }
 function changeKind(kind: string | number) {
-  if (kind !== draft.value.kind) addDraft(kind as Kind, kind === "email");
+  if (kind !== draft.value.kind) void addDraft(kind as Kind, kind === "email");
 }
-function deleteWorkingDraft() {
+async function deleteWorkingDraft() {
   if (busy.value || !pendingDeleteDraft.value) return;
-  const removed = pendingDeleteDraft.value;
-  const index = drafts.value.findIndex((item) => item.id === removed.id);
-  const remaining = drafts.value.filter((item) => item.id !== removed.id);
-  if (!remaining.length) {
-    remaining.push(blank(removed.kind));
-    search.value = "";
-  }
-  if (activeId.value === removed.id) {
-    agentOpen.value = false;
-    applyTemplateOpen.value = false;
-    clearOpen.value = false;
-    activeId.value = remaining[Math.min(index, remaining.length - 1)]!.id;
-  }
-  drafts.value = remaining;
-  pendingDeleteId.value = undefined;
+  await run("save", async () => {
+    const removed = pendingDeleteDraft.value!;
+    // A conflict never authorizes deletion of another window's latest edits.
+    await api("/drafts/" + idPath(removed.id), "DELETE", {
+      expectedRevision: removed.serverRevision,
+    });
+    clearTimeout(saveTimers.get(removed.id));
+    const remaining = drafts.value.filter((item) => item.id !== removed.id);
+    if (!remaining.length) {
+      const created = blank(removed.kind);
+      await sync.flush(created);
+      remaining.push(created);
+      search.value = "";
+    }
+    drafts.value = remaining;
+    if (activeId.value === removed.id) {
+      agentOpen.value = false;
+      clearOpen.value = false;
+      applyTemplateOpen.value = false;
+      const next = remaining[0]!;
+      if (!next.loaded)
+        drafts.value[0] = restored(
+          await api<ServerDraft>("/drafts/" + idPath(next.id)),
+        );
+      activeId.value = next.id;
+    }
+    pendingDeleteId.value = undefined;
+  });
 }
 function requestTemplate() {
   if (selectedTemplate.value === "none") {
@@ -604,45 +872,38 @@ function clearData() {
 }
 async function save(review = false) {
   await run("save", async () => {
-    if (draft.value.rows.length && !draft.value.recipientColumn) {
+    const target = draft.value;
+    await sync.flush(target);
+    if (!review) {
+      success.value = copy.value.draftSavedToTheServerNotExecuted;
+      return;
+    }
+    if (
+      !target.legacyItems.length &&
+      target.rows.length &&
+      !target.recipientColumn
+    ) {
       agentOpen.value = false;
-      draft.value.mergeOpen = true;
+      target.mergeOpen = true;
       throw Error(copy.value.confirmTheRecipientColumnFirst);
     }
-    if (issues.value.length) {
+    if (!target.legacyItems.length && issues.value.length) {
       agentOpen.value = false;
-      draft.value.mergeOpen = !!draft.value.rows.length;
+      target.mergeOpen = !!target.rows.length;
       throw Error(
         message("workspaceView.fixIssuesBeforeSaving", {
           count: issues.value.length,
         }),
       );
     }
-    const target = draft.value;
-    if (
-      !savedCurrent.value ||
-      !target.saved ||
-      target.saved.status !== "draft"
-    ) {
-      const saved = await api<Task>("/tasks", "POST", {
-        kind: target.kind,
-        payload: target.payload,
-        rows: target.rows.length
-          ? mappedRows(target.rows, target.mapping)
-          : undefined,
-        templateId:
-          target.templateId === "none" ? undefined : target.templateId,
-        conversation: target.conversation.slice(-50),
-      });
-      target.saved = saved;
-      target.savedSnapshot = snapshot();
-      target.saved = await api<Task>("/tasks/" + idPath(saved.id));
-      emit("saved");
-    }
-    if (review && target.saved) {
-      target.saved = await api<Task>("/tasks/" + idPath(target.saved.id));
-      emit("review", target.saved);
-    } else success.value = copy.value.draftSavedToTheServerNotExecuted;
+    target.saved = await api<Task>(
+      "/drafts/" + idPath(target.id) + "/review",
+      "POST",
+      { expectedRevision: target.serverRevision },
+    );
+    target.savedSnapshot = snapshot();
+    emit("saved");
+    emit("review", target.saved);
   });
 }
 let agentController: AbortController | undefined;
@@ -653,6 +914,8 @@ async function ask(instruction: string) {
     "agent",
     async () => {
       const target = draft.value;
+      await sync.flush(target);
+      target.revision = target.serverRevision;
       const baseline = snapshot();
       const payload = target.payload;
       const suggestion =
@@ -690,6 +953,7 @@ async function ask(instruction: string) {
       agentController = new AbortController();
       target.proposal = undefined;
       let reviewTaskId: string | undefined;
+      let openDraftId: string | undefined;
       let refresh = false;
       const applyWorkspace = (state: AgentWorkspace) => {
         if (state.draftId !== target.id || state.kind !== target.kind)
@@ -699,6 +963,7 @@ async function ask(instruction: string) {
         target.recipientColumn = state.recipientColumn;
         target.templateId = state.templateId || "none";
         target.revision = state.revision;
+        target.serverRevision = state.revision;
         target.suggestionContext = undefined;
         target.suggestionSnapshot = undefined;
         if (isDefaultDraftTitle(target.title) && state.payload.subject)
@@ -712,7 +977,8 @@ async function ask(instruction: string) {
             message: instruction,
             draftId: target.id,
             requestId: crypto.randomUUID(),
-            revision: target.revision,
+            revision: target.serverRevision,
+            serverRevision: target.serverRevision,
             rows: target.rows,
             mapping: target.mapping,
             recipientColumn: target.recipientColumn,
@@ -728,7 +994,9 @@ async function ask(instruction: string) {
           {
             signal: agentController.signal,
             onProgress: (event) => {
-              if (event.type === "workspace" && event.workspace) {
+              if (event.type === "open-draft" && event.draftId)
+                openDraftId = event.draftId;
+              else if (event.type === "workspace" && event.workspace) {
                 applyWorkspace(event.workspace);
                 reviewTaskId = undefined;
               } else if (event.type === "refresh") refresh = true;
@@ -770,8 +1038,18 @@ async function ask(instruction: string) {
         target.suggestionSnapshot = baseline;
         turn.status = "complete";
         turn.content = proposal.message;
-        if (reviewTaskId) {
-          const task = await api<Task>("/tasks/" + idPath(reviewTaskId));
+        if (openDraftId) {
+          await sync.flush(target);
+          await openServerDraft(openDraftId);
+          agentOpen.value = false;
+        } else if (reviewTaskId) {
+          await sync.flush(target);
+          // Final conversation and field edits must be persisted before the reviewed version is bound.
+          const task = await api<Task>(
+            "/drafts/" + idPath(target.id) + "/review",
+            "POST",
+            { expectedRevision: target.serverRevision },
+          );
           target.saved = task;
           target.savedSnapshot = snapshot();
           target.proposal = undefined;
@@ -849,6 +1127,8 @@ function shortcut(event: KeyboardEvent) {
 onUnmounted(() => {
   agentController?.abort();
   document.removeEventListener("keydown", shortcut);
+  window.removeEventListener("beforeunload", beforeUnload);
+  saveTimers.forEach(clearTimeout);
   emit("busy", false);
 });
 
@@ -886,7 +1166,7 @@ const deleteDraftDescriptionLabel = (name: string) =>
             class="task-entry"
             :class="{ selected: item.id === activeId }"
             :disabled="busy"
-            @click="activeId = item.id"
+            @click="openWorkingDraft(item.id)"
             ><span class="row between"
               ><strong>{{ item.title }}</strong
               ><Mail v-if="item.kind === 'email'" :size="14" /><CalendarDays
@@ -897,7 +1177,7 @@ const deleteDraftDescriptionLabel = (name: string) =>
             }}</span
             ><span class="task-state"
               ><span class="status-dot"></span
-              >{{ item.saved ? copy.saved : copy.editing
+              >{{ copy.syncStates[item.syncState]
               }}<span>{{
                 item.rows.length
                   ? `${item.rows.length} ${copy.rows}`
@@ -919,38 +1199,17 @@ const deleteDraftDescriptionLabel = (name: string) =>
         <div v-if="!visibleDrafts.length" class="empty">
           {{ copy.noMatchingDrafts }}
         </div>
-        <p
-          v-if="tasks.some((task) => task.status === 'draft')"
-          class="section-label"
-        >
-          {{ copy.savedDrafts }}
-        </p>
-        <Button
-          v-for="task in tasks
-            .filter((task) => task.status === 'draft')
-            .slice(0, 12)"
-          :key="task.id"
-          variant="ghost"
-          class="task-entry"
-          :disabled="busy"
-          @click="reviewSaved(task)"
-          ><strong>{{ task.summary }}</strong
-          ><span class="muted text-xs"
-            >{{ copy.savedClickToReview }} · {{ task.total }}</span
-          ></Button
-        >
       </div>
       <p class="task-space-note">
-        <ShieldCheck :size="14" />{{
-          copy.editsLastForThisSessionSaveToKeepAServerDraft
-        }}
+        <ShieldCheck :size="14" />{{ copy.serverDraftsHint }}
       </p>
     </aside>
     <div class="compose-region">
       <section class="compose-workspace">
         <div class="mobile-draft-switch">
           <AppSelect
-            v-model="activeId"
+            :model-value="activeId"
+            @update:model-value="$event && openWorkingDraft($event)"
             :disabled="busy"
             :options="
               drafts.map((item) => ({ value: item.id, label: item.title }))
@@ -964,6 +1223,50 @@ const deleteDraftDescriptionLabel = (name: string) =>
             @click="addDraft()"
             ><Plus
           /></Button>
+        </div>
+        <div v-if="draftLoadError" class="draft-sync-alert" role="alert">
+          <span>{{ draftLoadError }}</span
+          ><Button variant="outline" @click="loadDrafts">{{
+            copy.retrySave
+          }}</Button>
+        </div>
+        <div
+          v-if="draft.syncState === 'error' || draft.syncState === 'conflict'"
+          class="draft-sync-alert"
+          role="alert"
+        >
+          <span>{{ draft.syncError }}</span>
+          <Button
+            v-if="draft.syncState === 'error'"
+            variant="outline"
+            :disabled="busy"
+            @click="save()"
+            >{{ copy.retrySave }}</Button
+          >
+          <Button variant="outline" :disabled="busy" @click="copyLocalDraft">{{
+            copy.saveLocalCopy
+          }}</Button>
+          <Button
+            variant="outline"
+            :disabled="busy"
+            @click="reloadDraftOpen = true"
+            >{{ copy.reloadServerDraft }}</Button
+          >
+        </div>
+        <div v-if="draft.legacyNotice" class="draft-sync-alert">
+          <span>{{ copy.legacyDraftWarning }}</span>
+          <AppSelect
+            v-if="draft.legacyItems.length"
+            :model-value="String(draft.legacyIndex)"
+            :options="
+              draft.legacyItems.map((item, index) => ({
+                value: String(index),
+                label: `${copy.row} ${index + 1} · ${item.to || item.requiredAttendees || ''}`,
+              }))
+            "
+            :disabled="busy"
+            @update:model-value="$event && selectLegacyItem($event)"
+          />
         </div>
         <div class="compose-heading">
           <div class="compose-identity">
@@ -991,9 +1294,9 @@ const deleteDraftDescriptionLabel = (name: string) =>
           <div class="compose-actions">
             <Button
               variant="outline"
-              :disabled="busy"
               aria-haspopup="dialog"
               :aria-expanded="mergeOpen"
+              :disabled="busy || !!draft.legacyItems.length"
               @click="openMerge"
             >
               <FileSpreadsheet />{{
@@ -1236,8 +1539,12 @@ const deleteDraftDescriptionLabel = (name: string) =>
             @agent="agentOpen = true"
           />
           <div class="editor-status">
-            <span>{{ copy.savedDraftsAreAvailableInHistory }}</span
-            ><span>{{ savedCurrent ? copy.saved : copy.unsavedEdits }}</span>
+            <span>{{ copy.serverDraftsHint }}</span
+            ><span role="status" aria-live="polite">{{
+              !draftsReady
+                ? copy.loadingDrafts
+                : copy.syncStates[draft.syncState]
+            }}</span>
           </div>
         </Card>
       </section>
@@ -1343,7 +1650,7 @@ const deleteDraftDescriptionLabel = (name: string) =>
           <div>
             <dt>{{ copy.saveStatus }}</dt>
             <dd>
-              {{ savedCurrent ? copy.serverDraft : copy.unsaved }}
+              {{ copy.syncStates[draft.syncState] }}
             </dd>
           </div>
         </dl>
@@ -1394,6 +1701,26 @@ const deleteDraftDescriptionLabel = (name: string) =>
             @click="deleteWorkingDraft"
             >{{ copy.deleteDraft }}</Button
           >
+        </div>
+      </DialogContent>
+    </Dialog>
+    <Dialog v-model:open="reloadDraftOpen">
+      <DialogContent
+        ><DialogHeader
+          ><DialogTitle>{{ copy.reloadServerDraft }}</DialogTitle
+          ><DialogDescription>{{
+            copy.reloadDraftWarning
+          }}</DialogDescription></DialogHeader
+        >
+        <div class="actions">
+          <Button
+            variant="outline"
+            :disabled="busy"
+            @click="reloadDraftOpen = false"
+            >{{ copy.cancel }}</Button
+          ><Button :disabled="busy" @click="reloadCurrentDraft">{{
+            copy.reloadServerDraft
+          }}</Button>
         </div>
       </DialogContent>
     </Dialog>

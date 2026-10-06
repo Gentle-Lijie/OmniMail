@@ -11,6 +11,12 @@ import * as XLSX from "xlsx";
 import { z } from "zod";
 import { createStore, id, hash } from "./store.js";
 import { configureAuth } from "./auth.js";
+import {
+  createDrafts,
+  DraftError,
+  draftContentSchema,
+  expectedRevisionSchema,
+} from "./drafts.js";
 import { createTasks, eventSchema } from "./tasks.js";
 import { testEmailPayload } from "./testEmail.js";
 import { createAI, safeURL, ProviderError } from "./ai.js";
@@ -35,6 +41,8 @@ export async function buildApp(options: AppOptions) {
   );
   const { db } = store;
   const tasks = createTasks(store, options.fetcher);
+  const drafts = createDrafts(store);
+  drafts.migrateLegacy();
   const ai = createAI(store, options.fetcher);
   const app = Fastify({
     logger:
@@ -68,6 +76,9 @@ export async function buildApp(options: AppOptions) {
       message = serverMessage("app.requestFailedCheckConfigurationOrInput");
     reply.code(e.statusCode && e.statusCode >= 400 ? e.statusCode : 400).send({
       error: message,
+      ...(e instanceof DraftError || e.code === "stale_review"
+        ? { code: e.code }
+        : {}),
       ...(e instanceof ProviderError
         ? { code: e.code, upstreamStatus: e.upstreamStatus }
         : {}),
@@ -298,6 +309,63 @@ export async function buildApp(options: AppOptions) {
     const columns = check(Object.keys(rows[0]));
     return { columns, rows, count: rows.length };
   });
+  const draftId = z.string().min(1).max(200);
+  app.get("/api/drafts", async (req) => {
+    drafts.migrateLegacy();
+    const query = z
+      .object({
+        offset: z.coerce.number().int().min(0).default(0),
+        limit: z.coerce.number().int().min(1).max(100).default(100),
+      })
+      .parse(req.query);
+    return drafts.list(query.offset, query.limit);
+  });
+  app.post("/api/drafts", {bodyLimit: 18 * 1024 * 1024}, async (req) => {
+    const body = z
+      .object({ id: draftId.optional(), content: draftContentSchema })
+      .strict()
+      .parse(req.body);
+    return drafts.create(body.content, body.id);
+  });
+  app.get<{ Params: { id: string } }>("/api/drafts/:id", async (req) =>
+    drafts.get(draftId.parse(req.params.id)),
+  );
+  app.put<{ Params: { id: string } }>("/api/drafts/:id", {bodyLimit: 18 * 1024 * 1024}, async (req) => {
+    const body = z
+      .object({
+        expectedRevision: expectedRevisionSchema,
+        content: draftContentSchema,
+      })
+      .strict()
+      .parse(req.body);
+    return drafts.update(
+      draftId.parse(req.params.id),
+      body.expectedRevision,
+      body.content,
+    );
+  });
+  app.delete<{ Params: { id: string } }>("/api/drafts/:id", async (req) => {
+    const body = z
+      .object({ expectedRevision: expectedRevisionSchema })
+      .strict()
+      .parse(req.body);
+    drafts.remove(draftId.parse(req.params.id), body.expectedRevision);
+    return { ok: true };
+  });
+  app.post<{ Params: { id: string } }>(
+    "/api/drafts/:id/review",
+    async (req) => {
+      const body = z
+        .object({ expectedRevision: expectedRevisionSchema })
+        .strict()
+        .parse(req.body);
+      return drafts.review(draftId.parse(req.params.id), body.expectedRevision);
+    },
+  );
+  app.post<{ Params: { id: string } }>(
+    "/api/tasks/:id/copy-draft",
+    async (req) => drafts.fromTask(req.params.id),
+  );
   app.get("/api/tasks", async () =>
     tasks.list().map(({ items, payload, conversation, template, ...task }) => ({
       ...task,

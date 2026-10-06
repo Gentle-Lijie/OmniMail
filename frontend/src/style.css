@@ -2008,3 +2008,30 @@ kbd {
     transition: none !important;
   }
 }
+
+.draft-sync-alert {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, #c28a3c 8%, var(--card));
+  font-size: 12px;
+}
+.draft-sync-alert > span {
+  flex: 1 1 240px;
+}
+.draft-sync-alert > button {
+  font-size: 12px;
+}
+.draft-sync-alert > [role="combobox"] {
+  flex: 1 1 240px;
+}
+@media (max-width: 900px) {
+  .editor-status > span:first-child {
+    display: none;
+  }
+}
