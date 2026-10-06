@@ -410,7 +410,13 @@
     "cc": "CC",
     "bcc": "BCC",
     "agentInterrupted": "Interrupted; check the latest saved state.",
-    "sendTestEmail": "Send test email"
+    "sendTestEmail": "Send test email",
+    "mergeDialogHelp": "Import a list, confirm the recipient column and edit field mappings. Return to the editor to write content; execution still requires review.",
+    "mergeChangesRetained": "Changes stay in the current draft. Closing keeps the list.",
+    "returnToEditor": "Return to editor",
+    "replaceListWarning": "A successful import replaces the current list and its edits, and resets the recipient column and field mappings. Cancelling the file picker or a failed import keeps your current data.",
+    "chooseReplacementList": "Choose replacement list",
+    "validateBatch": "Validate batch"
   },
   "dialogContent": {
     "close": "Close"

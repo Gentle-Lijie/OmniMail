@@ -852,28 +852,13 @@ kbd {
 .draft-title:focus {
   box-shadow: 0 0 0 1px var(--primary);
 }
-.compose-card,
-.merge-panel {
+.compose-card {
   box-shadow: none;
   overflow: hidden;
 }
 .compose-workspace > .compose-heading,
 .compose-workspace > .mobile-draft-switch {
   flex-shrink: 0;
-}
-.compose-workspace > .merge-panel {
-  display: flex;
-  flex-direction: column;
-  flex: 0 1 auto;
-  min-height: 0;
-  max-height: 25%;
-}
-.compose-workspace > .merge-panel .merge-summary {
-  flex-shrink: 0;
-}
-.compose-workspace > .merge-panel .merge-body {
-  min-height: 0;
-  overflow: auto;
 }
 .compose-workspace > .compose-card {
   display: flex;
@@ -1581,39 +1566,63 @@ kbd {
   background: var(--card) !important;
   color: var(--foreground) !important;
 }
+.merge-dialog[role="dialog"] {
+  width: min(960px, calc(100vw - 24px));
+  max-width: 960px;
+  max-height: calc(100dvh - 32px);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+.merge-dialog > :first-child {
+  padding: 24px 44px 16px 24px;
+}
+.merge-dialog-scroll {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.merge-dialog-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 16px 24px;
+  border-top: 1px solid var(--border);
+}
+.merge-dialog-footer .actions {
+  margin: 0;
+  margin-left: auto;
+}
+.merge-file-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.merge-dialog .merge-summary {
+  padding: 12px 24px;
+}
+.merge-dialog .merge-body {
+  padding: 16px 24px;
+}
+@media (max-width: 600px) {
+  .merge-dialog > :first-child {
+    padding: 20px 40px 12px 16px;
+  }
+  .merge-dialog .merge-summary,
+  .merge-dialog .merge-body,
+  .merge-dialog-footer {
+    padding: 12px 16px;
+  }
+}
 .merge-summary {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 10px 12px;
   flex-wrap: wrap;
-}
-.merge-expand {
-  height: auto;
-  justify-content: flex-start;
-  text-align: left;
-  padding: 4px;
-  white-space: normal;
-  flex: 1;
-  min-width: 170px;
-}
-.merge-expand > svg:first-child {
-  color: var(--primary);
-}
-.merge-expand > span {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  min-width: 0;
-  white-space: nowrap;
-}
-.merge-expand strong {
-  font-size: 12px;
-}
-.merge-expand small {
-  font-size: 10px;
-  font-weight: 400;
-  overflow-wrap: anywhere;
 }
 .merge-summary > .badge {
   margin-left: auto;
@@ -1767,10 +1776,6 @@ kbd {
   }
   .compose-workspace {
     overflow: auto;
-  }
-  .compose-workspace > .merge-panel {
-    flex-shrink: 0;
-    max-height: none;
   }
   .compose-workspace > .compose-card {
     flex: 1 0 auto;
@@ -1930,10 +1935,6 @@ kbd {
   }
   .merge-summary > button {
     font-size: 10px;
-  }
-  .merge-expand {
-    min-width: 0;
-    flex: 1;
   }
   .merge-summary > .badge {
     margin-left: 0;

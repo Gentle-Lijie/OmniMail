@@ -410,7 +410,13 @@
     "cc": "抄送",
     "bcc": "密送",
     "agentInterrupted": "已中断，请检查最新保存状态。",
-    "sendTestEmail": "发送测试邮件"
+    "sendTestEmail": "发送测试邮件",
+    "mergeDialogHelp": "导入名单、确认收件人列并编辑字段映射。关闭后可继续编辑正文，发送前仍需审核。",
+    "mergeChangesRetained": "修改保留在当前草稿中，关闭弹窗不会清除名单。",
+    "returnToEditor": "返回编辑器",
+    "replaceListWarning": "替换成功后会覆盖当前名单及其编辑，并重置收件人列和字段映射。取消选择或导入失败会保留当前数据。",
+    "chooseReplacementList": "选择替换名单",
+    "validateBatch": "校验整批"
   },
   "dialogContent": {
     "close": "关闭"

@@ -8,8 +8,6 @@ import {
   CalendarDays,
   Sparkles,
   Upload,
-  ChevronDown,
-  ChevronUp,
   CheckCircle2,
   AlertCircle,
   FileSpreadsheet,
@@ -18,7 +16,6 @@ import {
   Save,
   Eye,
   Send,
-  X,
   ChevronLeft,
   ChevronRight,
   LoaderCircle,
@@ -184,8 +181,30 @@ const agentOpen = ref(false),
   bccOpen = ref(false),
   optionalAttendeesOpen = ref(false),
   applyTemplateOpen = ref(false),
-  clearOpen = ref(false);
+  clearOpen = ref(false),
+  replaceOpen = ref(false);
 const busy = computed(() => !!activity.value || props.locked);
+const mergeOpen = computed({
+  get: () => props.visible && draft.value.mergeOpen,
+  set: (open: boolean) => {
+    if (!busy.value) draft.value.mergeOpen = open;
+  },
+});
+function openMerge() {
+  if (busy.value) return;
+  agentOpen.value = false;
+  draft.value.mergeOpen = true;
+}
+function requestImport() {
+  if (busy.value) return;
+  if (draft.value.rows.length) replaceOpen.value = true;
+  else fileInput.value?.click();
+}
+function confirmReplace() {
+  if (busy.value) return;
+  replaceOpen.value = false;
+  fileInput.value?.click();
+}
 const testEmailOpen = ref(false);
 const testEmailContent = ref<TestEmailContent>();
 function openTestEmail() {
@@ -418,10 +437,19 @@ watch(activity, (value) => emit("busy", !!value));
 watch(
   () => props.visible,
   (visible) => {
-    if (!visible) agentOpen.value = false;
+    if (!visible) {
+      agentOpen.value = false;
+      draft.value.mergeOpen = false;
+      clearOpen.value = false;
+      replaceOpen.value = false;
+    }
   },
 );
-watch(activeId, () => {
+watch(activeId, (current, previous) => {
+  const previousDraft = drafts.value.find((item) => item.id === previous);
+  if (previousDraft) previousDraft.mergeOpen = false;
+  clearOpen.value = false;
+  replaceOpen.value = false;
   fieldTarget.value = "html";
   error.value = "";
   success.value = "";
@@ -511,7 +539,9 @@ function applyTemplate() {
 async function importFile(event: Event) {
   const input = event.target as HTMLInputElement,
     file = input.files?.[0];
-  if (!file) return;
+  input.value = "";
+  if (!file || busy.value) return;
+  const target = draft.value;
   await run("import", async () => {
     if (file.size > 5 * 1024 * 1024)
       throw Error(copy.value.fileMustNotExceed5MB);
@@ -523,7 +553,6 @@ async function importFile(event: Event) {
       count: number;
     }>("/import", "POST", form);
     if (!data.rows.length) throw Error(copy.value.theFileContainsNoDataRows);
-    const target = draft.value;
     const recipientKey = target.kind === "email" ? "to" : "requiredAttendees";
     if (!target.rows.length)
       target.manualTo = target.payload[recipientKey] || "";
@@ -546,9 +575,9 @@ async function importFile(event: Event) {
       if (target.columns.includes(field)) target.mapping[field] = field;
     success.value = copy.value.importSuccess;
   });
-  input.value = "";
 }
 function selectRecipient(column: string) {
+  if (busy.value || !draft.value.columns.includes(column)) return;
   draft.value.recipientColumn = column;
   draft.value.payload[
     draft.value.kind === "email" ? "to" : "requiredAttendees"
@@ -558,6 +587,7 @@ function selectRecipient(column: string) {
   error.value = "";
 }
 function clearData() {
+  if (busy.value) return;
   const target = draft.value;
   target.rows = [];
   target.columns = [];
@@ -574,9 +604,13 @@ function clearData() {
 }
 async function save(review = false) {
   await run("save", async () => {
-    if (draft.value.rows.length && !draft.value.recipientColumn)
+    if (draft.value.rows.length && !draft.value.recipientColumn) {
+      agentOpen.value = false;
+      draft.value.mergeOpen = true;
       throw Error(copy.value.confirmTheRecipientColumnFirst);
+    }
     if (issues.value.length) {
+      agentOpen.value = false;
       draft.value.mergeOpen = !!draft.value.rows.length;
       throw Error(
         message("workspaceView.fixIssuesBeforeSaving", {
@@ -783,9 +817,12 @@ function applyProposal() {
   success.value = copy.value.proposalApplied;
 }
 function quickAction(action: string) {
+  if (busy.value) return;
   if (action === "check") {
-    draft.value.mergeOpen = true;
-    if (issues.value.length)
+    openMerge();
+    if (draft.value.rows.length && !draft.value.recipientColumn)
+      notify.warning(copy.value.confirmTheRecipientColumnFirst);
+    else if (issues.value.length)
       notify.warning(
         message("workspaceView.issuesFound", { count: issues.value.length }),
       );
@@ -801,6 +838,7 @@ function shortcut(event: KeyboardEvent) {
   if (
     props.visible &&
     !busy.value &&
+    !mergeOpen.value &&
     (event.metaKey || event.ctrlKey) &&
     event.key.toLowerCase() === "k"
   ) {
@@ -952,6 +990,31 @@ const deleteDraftDescriptionLabel = (name: string) =>
           </div>
           <div class="compose-actions">
             <Button
+              variant="outline"
+              :disabled="busy"
+              aria-haspopup="dialog"
+              :aria-expanded="mergeOpen"
+              @click="openMerge"
+            >
+              <FileSpreadsheet />{{
+                draft.kind === "email" ? copy.mailMerge : copy.batchEvents
+              }}
+              <span
+                v-if="draft.rows.length"
+                class="badge"
+                :class="{
+                  'badge-warning': issues.length || !draft.recipientColumn,
+                }"
+              >
+                {{ draft.rows.length }} {{ copy.rows }} ·
+                {{
+                  issues.length || !draft.recipientColumn
+                    ? copy.needsReview
+                    : copy.validated
+                }}
+              </span>
+            </Button>
+            <Button
               v-if="draft.kind === 'email'"
               variant="outline"
               :disabled="busy"
@@ -973,220 +1036,6 @@ const deleteDraftDescriptionLabel = (name: string) =>
           </div>
         </div>
 
-        <Card class="merge-panel"
-          ><div class="merge-summary">
-            <Button
-              variant="ghost"
-              class="merge-expand"
-              :aria-expanded="draft.mergeOpen"
-              @click="draft.mergeOpen = !draft.mergeOpen"
-              ><FileSpreadsheet :size="18" /><span>
-                <ChevronDown v-if="draft.mergeOpen" :size="15" /><ChevronRight
-                  v-else
-                  :size="15"
-                /><strong>{{
-                  draft.kind === "email" ? copy.mailMerge : copy.batchEvents
-                }}</strong></span
-              ></Button
-            ><span
-              v-if="draft.rows.length"
-              class="badge"
-              :class="{
-                'badge-warning': issues.length || !draft.recipientColumn,
-              }"
-              >{{
-                issues.length || !draft.recipientColumn
-                  ? copy.needsReview
-                  : copy.validated
-              }}</span
-            ><Button
-              variant="outline"
-              size="sm"
-              :disabled="busy"
-              @click="fileInput?.click()"
-              ><Upload />{{
-                draft.rows.length ? copy.replaceList : copy.importList
-              }}</Button
-            ><Button
-              v-if="draft.rows.length"
-              variant="ghost"
-              size="icon-sm"
-              :disabled="busy"
-              :aria-label="copy.clearList"
-              @click="clearOpen = true"
-              ><X /></Button
-            ><input
-              ref="fileInput"
-              type="file"
-              accept=".csv,.xls,.xlsx"
-              :aria-label="copy.importList"
-              class="sr-only"
-              tabindex="-1"
-              @change="importFile"
-            />
-          </div>
-          <div v-if="draft.mergeOpen" class="merge-body">
-            <p v-if="!draft.rows.length" class="muted text-sm">
-              {{ copy.importHelp }}
-            </p>
-            <template v-else
-              ><ol class="merge-steps">
-                <li class="done">
-                  <CheckCircle2 :size="13" />{{ copy.importList }}
-                </li>
-                <li :class="{ done: draft.recipientColumn }">
-                  {{ copy.confirmRecipients }}
-                </li>
-                <li>{{ copy.insertFieldsValidate }}</li>
-              </ol>
-              <div class="recipient-mapping">
-                <label class="field"
-                  ><span>{{ copy.recipientColumnConfirmFirst }}</span
-                  ><AppSelect
-                    :model-value="draft.recipientColumn || undefined"
-                    :options="columnOptions"
-                    :placeholder="copy.selectEmailColumn"
-                    :disabled="busy"
-                    @update:model-value="selectRecipient($event!)" /></label
-                ><Button
-                  v-if="!draft.recipientColumn && suggestion"
-                  variant="secondary"
-                  size="sm"
-                  @click="selectRecipient(suggestion)"
-                  >{{ copy.useDetectedColumn }}: {{ suggestion }}</Button
-                >
-              </div>
-              <div class="merge-detail-toggles">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  :aria-expanded="dataOpen"
-                  @click="dataOpen = !dataOpen"
-                  ><FileSpreadsheet />{{
-                    dataOpen ? copy.hideData : copy.viewEditList
-                  }}</Button
-                ><Button
-                  v-if="placeholders.length"
-                  variant="ghost"
-                  size="sm"
-                  :aria-expanded="mappingOpen"
-                  @click="mappingOpen = !mappingOpen"
-                  >{{ copy.fieldMapping }} · {{ placeholders.length }}</Button
-                >
-              </div>
-              <div
-                v-if="placeholders.length && mappingOpen"
-                class="mapping-grid"
-              >
-                <label v-for="field in placeholders" :key="field" class="field"
-                  ><span>{{ tokenLabel(field) }}</span
-                  ><AppSelect
-                    v-model="draft.mapping[field]"
-                    :options="columnOptions"
-                    :placeholder="copy.mapToAColumn"
-                    :disabled="busy || field === draft.recipientColumn"
-                /></label>
-              </div>
-              <div v-if="issues.length" class="merge-validation">
-                <AlertCircle :size="15" /><span
-                  >{{ issues.length }} {{ copy.validationDetails }}</span
-                ><Button
-                  v-for="(issue, issueIndex) in issues.slice(0, 3)"
-                  :key="issueIndex"
-                  size="xs"
-                  variant="ghost"
-                  @click="
-                    problemOnly = true;
-                    dataOpen = true;
-                    dataPage = 0;
-                  "
-                  >{{ issue.row ? `${copy.row} ${issue.row} · ` : ""
-                  }}{{ issue.field }}: {{ issue.message }}</Button
-                >
-              </div>
-              <div v-if="dataOpen" class="merge-table-scroll">
-                <table class="data-table">
-                  <caption class="sr-only">
-                    {{
-                      copy.mailMergeList
-                    }}
-                  </caption>
-                  <thead>
-                    <tr>
-                      <th scope="col">{{ copy.row2 }}</th>
-                      <th
-                        v-for="column in draft.columns"
-                        :key="column"
-                        scope="col"
-                      >
-                        {{ column }}
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr
-                      v-for="entry in displayedRows"
-                      :key="entry.index"
-                      :class="{
-                        'row-problem': issues.some(
-                          (issue) => issue.row === entry.index + 1,
-                        ),
-                      }"
-                    >
-                      <th scope="row">{{ entry.index + 1 }}</th>
-                      <td v-for="column in draft.columns" :key="column">
-                        <Input
-                          :model-value="String(entry.row[column] ?? '')"
-                          :aria-label="`${entry.index + 1} · ${column}`"
-                          :disabled="busy"
-                          @update:model-value="entry.row[column] = $event"
-                        />
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-              <div v-if="dataOpen" class="row between merge-pagination">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  :class="{ 'text-primary': problemOnly }"
-                  @click="
-                    problemOnly = !problemOnly;
-                    dataPage = 0;
-                  "
-                  >{{
-                    problemOnly ? copy.showAll : copy.problemRowsOnly
-                  }}</Button
-                >
-                <div class="row">
-                  <Button
-                    variant="outline"
-                    size="icon-sm"
-                    :disabled="dataPage === 0"
-                    :aria-label="copy.previousPage"
-                    @click="dataPage--"
-                    ><ChevronLeft /></Button
-                  ><span class="muted text-xs"
-                    >{{ dataPage + 1 }} / {{ pageCount }}</span
-                  ><Button
-                    variant="outline"
-                    size="icon-sm"
-                    :disabled="dataPage + 1 >= pageCount"
-                    :aria-label="copy.nextPage"
-                    @click="dataPage++"
-                    ><ChevronRight
-                  /></Button>
-                </div>
-              </div>
-              <label class="field"
-                ><span>{{ copy.personalizedPreviewSample }}</span
-                ><AppSelect
-                  v-model="selectedSample"
-                  :options="sampleOptions" /></label
-            ></template>
-          </div>
-        </Card>
         <Card class="compose-card">
           <div class="compose-card-controls">
             <div class="compose-card-header">
@@ -1564,8 +1413,274 @@ const deleteDraftDescriptionLabel = (name: string) =>
         </div></DialogContent
       ></Dialog
     >
+    <Dialog v-model:open="mergeOpen">
+      <DialogContent
+        class="merge-dialog"
+        @interact-outside.prevent
+        @escape-key-down="busy && $event.preventDefault()"
+      >
+        <DialogHeader>
+          <DialogTitle>{{
+            draft.kind === "email" ? copy.mailMerge : copy.batchEvents
+          }}</DialogTitle>
+          <DialogDescription>{{ copy.mergeDialogHelp }}</DialogDescription>
+        </DialogHeader>
+        <div class="merge-dialog-scroll" :aria-busy="activity === 'import'">
+          <div class="merge-summary">
+            <span v-if="draft.rows.length" class="merge-file-name"
+              >{{ draft.fileName }} · {{ draft.rows.length }}
+              {{ copy.rows }}</span
+            >
+            <span
+              v-if="draft.rows.length"
+              class="badge"
+              :class="{
+                'badge-warning': issues.length || !draft.recipientColumn,
+              }"
+              >{{
+                issues.length || !draft.recipientColumn
+                  ? copy.needsReview
+                  : copy.validated
+              }}</span
+            >
+            <Button
+              variant="outline"
+              size="sm"
+              :disabled="busy"
+              @click="requestImport"
+            >
+              <Upload />{{
+                draft.rows.length ? copy.replaceList : copy.importList
+              }}
+            </Button>
+            <Button
+              v-if="draft.rows.length"
+              variant="ghost"
+              size="sm"
+              :disabled="busy"
+              @click="clearOpen = true"
+            >
+              <Trash2 />{{ copy.clearList }}
+            </Button>
+            <span
+              v-if="activity === 'import'"
+              class="row muted text-xs"
+              role="status"
+              ><LoaderCircle class="animate-spin" :size="14" />{{
+                copy.activities.import
+              }}</span
+            >
+            <input
+              ref="fileInput"
+              type="file"
+              accept=".csv,.xls,.xlsx"
+              :aria-label="copy.importList"
+              class="sr-only"
+              tabindex="-1"
+              @change="importFile"
+            />
+          </div>
+          <div class="merge-body">
+            <p v-if="!draft.rows.length" class="muted text-sm">
+              {{ copy.importHelp }}
+            </p>
+            <template v-else
+              ><ol class="merge-steps">
+                <li class="done">
+                  <CheckCircle2 :size="13" />{{ copy.importList }}
+                </li>
+                <li :class="{ done: draft.recipientColumn }">
+                  {{ copy.confirmRecipients }}
+                </li>
+                <li>{{ copy.insertFieldsValidate }}</li>
+              </ol>
+              <div class="recipient-mapping">
+                <label class="field"
+                  ><span>{{ copy.recipientColumnConfirmFirst }}</span
+                  ><AppSelect
+                    :model-value="draft.recipientColumn || undefined"
+                    :options="columnOptions"
+                    :placeholder="copy.selectEmailColumn"
+                    :disabled="busy"
+                    @update:model-value="selectRecipient($event!)" /></label
+                ><Button
+                  v-if="!draft.recipientColumn && suggestion"
+                  variant="secondary"
+                  size="sm"
+                  :disabled="busy"
+                  @click="selectRecipient(suggestion)"
+                  >{{ copy.useDetectedColumn }}: {{ suggestion }}</Button
+                >
+              </div>
+              <div class="merge-detail-toggles">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  :aria-expanded="dataOpen"
+                  @click="dataOpen = !dataOpen"
+                  ><FileSpreadsheet />{{
+                    dataOpen ? copy.hideData : copy.viewEditList
+                  }}</Button
+                ><Button
+                  v-if="placeholders.length"
+                  variant="ghost"
+                  size="sm"
+                  :aria-expanded="mappingOpen"
+                  @click="mappingOpen = !mappingOpen"
+                  >{{ copy.fieldMapping }} · {{ placeholders.length }}</Button
+                >
+              </div>
+              <div
+                v-if="placeholders.length && mappingOpen"
+                class="mapping-grid"
+              >
+                <label v-for="field in placeholders" :key="field" class="field"
+                  ><span>{{ tokenLabel(field) }}</span
+                  ><AppSelect
+                    v-model="draft.mapping[field]"
+                    :options="columnOptions"
+                    :placeholder="copy.mapToAColumn"
+                    :disabled="busy || field === draft.recipientColumn"
+                /></label>
+              </div>
+              <div v-if="issues.length" class="merge-validation">
+                <AlertCircle :size="15" /><span
+                  >{{ issues.length }} {{ copy.validationDetails }}</span
+                ><Button
+                  v-for="(issue, issueIndex) in issues.slice(0, 3)"
+                  :key="issueIndex"
+                  size="xs"
+                  variant="ghost"
+                  @click="
+                    problemOnly = true;
+                    dataOpen = true;
+                    dataPage = 0;
+                  "
+                  >{{ issue.row ? `${copy.row} ${issue.row} · ` : ""
+                  }}{{ issue.field }}: {{ issue.message }}</Button
+                >
+              </div>
+              <div v-if="dataOpen" class="merge-table-scroll">
+                <table class="data-table">
+                  <caption class="sr-only">
+                    {{
+                      copy.mailMergeList
+                    }}
+                  </caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">{{ copy.row2 }}</th>
+                      <th
+                        v-for="column in draft.columns"
+                        :key="column"
+                        scope="col"
+                      >
+                        {{ column }}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr
+                      v-for="entry in displayedRows"
+                      :key="entry.index"
+                      :class="{
+                        'row-problem': issues.some(
+                          (issue) => issue.row === entry.index + 1,
+                        ),
+                      }"
+                    >
+                      <th scope="row">{{ entry.index + 1 }}</th>
+                      <td v-for="column in draft.columns" :key="column">
+                        <Input
+                          :model-value="String(entry.row[column] ?? '')"
+                          :aria-label="`${entry.index + 1} · ${column}`"
+                          :disabled="busy"
+                          @update:model-value="entry.row[column] = $event"
+                        />
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div v-if="dataOpen" class="row between merge-pagination">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  :class="{ 'text-primary': problemOnly }"
+                  @click="
+                    problemOnly = !problemOnly;
+                    dataPage = 0;
+                  "
+                  >{{
+                    problemOnly ? copy.showAll : copy.problemRowsOnly
+                  }}</Button
+                >
+                <div class="row">
+                  <Button
+                    variant="outline"
+                    size="icon-sm"
+                    :disabled="dataPage === 0"
+                    :aria-label="copy.previousPage"
+                    @click="dataPage--"
+                    ><ChevronLeft /></Button
+                  ><span class="muted text-xs"
+                    >{{ dataPage + 1 }} / {{ pageCount }}</span
+                  ><Button
+                    variant="outline"
+                    size="icon-sm"
+                    :disabled="dataPage + 1 >= pageCount"
+                    :aria-label="copy.nextPage"
+                    @click="dataPage++"
+                    ><ChevronRight
+                  /></Button>
+                </div>
+              </div>
+              <label class="field"
+                ><span>{{ copy.personalizedPreviewSample }}</span
+                ><AppSelect
+                  v-model="selectedSample"
+                  :options="sampleOptions"
+                  :disabled="busy" /></label
+            ></template>
+          </div>
+        </div>
+        <div class="merge-dialog-footer">
+          <span class="muted text-xs">{{ copy.mergeChangesRetained }}</span>
+          <div class="actions">
+            <Button
+              variant="outline"
+              :disabled="busy || !draft.rows.length"
+              @click="quickAction('check')"
+              ><ShieldCheck />{{ copy.validateBatch }}</Button
+            >
+            <Button :disabled="busy" @click="mergeOpen = false">{{
+              copy.returnToEditor
+            }}</Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+    <Dialog v-model:open="replaceOpen">
+      <DialogContent @interact-outside.prevent>
+        <DialogHeader>
+          <DialogTitle>{{ copy.replaceList }}</DialogTitle>
+          <DialogDescription>{{ copy.replaceListWarning }}</DialogDescription>
+        </DialogHeader>
+        <div class="actions">
+          <Button
+            variant="outline"
+            :disabled="busy"
+            @click="replaceOpen = false"
+            >{{ copy.cancel }}</Button
+          >
+          <Button :disabled="busy" @click="confirmReplace">{{
+            copy.chooseReplacementList
+          }}</Button>
+        </div>
+      </DialogContent>
+    </Dialog>
     <Dialog v-model:open="clearOpen"
-      ><DialogContent
+      ><DialogContent @interact-outside.prevent
         ><DialogHeader
           ><DialogTitle>{{ copy.clearImportedData }}</DialogTitle
           ><DialogDescription>{{
@@ -1573,10 +1688,12 @@ const deleteDraftDescriptionLabel = (name: string) =>
           }}</DialogDescription></DialogHeader
         >
         <div class="actions">
-          <Button variant="outline" @click="clearOpen = false">{{
-            copy.back
-          }}</Button
-          ><Button variant="destructive" @click="clearData">{{
+          <Button
+            variant="outline"
+            :disabled="busy"
+            @click="clearOpen = false"
+            >{{ copy.back }}</Button
+          ><Button variant="destructive" :disabled="busy" @click="clearData">{{
             copy.clearList
           }}</Button>
         </div></DialogContent
